@@ -518,11 +518,15 @@ const refreshAccessToken = async (): Promise<string | null> => {
 };
 
 apiClient.interceptors.request.use(async (config) => {
-  const token = await getAccessToken();
-  if (token) {
-    const headers = AxiosHeaders.from(config.headers ?? {});
-    headers.set('Authorization', `Bearer ${token}`);
-    config.headers = headers;
+  try {
+    const token = await getAccessToken();
+    if (token) {
+      const headers = AxiosHeaders.from(config.headers ?? {});
+      headers.set('Authorization', `Bearer ${token}`);
+      config.headers = headers;
+    }
+  } catch (error) {
+    console.warn('[apiClient] Unable to read access token from storage. Sending request without Authorization header.', error);
   }
   return config;
 });
