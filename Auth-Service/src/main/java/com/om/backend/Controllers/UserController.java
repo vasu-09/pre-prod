@@ -85,6 +85,32 @@ public class UserController {
         return ResponseEntity.noContent().build();
     }
 
+    @GetMapping("/me/display-name")
+    public ResponseEntity<DisplayNameResponse> getDisplayName(Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        return ResponseEntity.ok(new DisplayNameResponse(userService.getDisplayName(userId)));
+    }
+
+    @PutMapping("/me/display-name")
+    public ResponseEntity<UserProfileDto> updateDisplayName(Principal principal,
+                                                            @RequestBody UpdateDisplayNameRequest request) {
+        Long userId = Long.valueOf(principal.getName());
+        return ResponseEntity.ok(userService.updateDisplayName(userId, request.getDisplayName()));
+    }
+
+    @GetMapping("/me/email")
+    public ResponseEntity<EmailResponse> getEmail(Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        return ResponseEntity.ok(new EmailResponse(userService.getEmail(userId)));
+    }
+
+    @PutMapping("/me/email")
+    public ResponseEntity<UserProfileDto> updateEmail(Principal principal,
+                                                      @RequestBody UpdateEmailRequest request) {
+        Long userId = Long.valueOf(principal.getName());
+        return ResponseEntity.ok(userService.updateEmail(userId, request.getEmail()));
+    }
+
     // --- Device registration (FCM) ---
     @PostMapping("/me/devices")
     public ResponseEntity<Void> registerDevice(Principal p, @RequestBody RegisterDeviceDto dto) {

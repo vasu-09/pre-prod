@@ -61,7 +61,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": ""
+      "apiBaseUrl": "https://api-preprod.mocconnect.in"
     }
   }
 }

@@ -1,13 +1,13 @@
 package com.om.backend.Model;
 
 import jakarta.persistence.*;
-import jakarta.persistence.criteria.CriteriaBuilder;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
@@ -37,11 +37,11 @@ public class User {
         @OneToMany(mappedBy = "user")
         private List<Otp> otps; // List of OTPs generated for the user (1-to-many relationship)
         
-        @Convert(converter = NotificationPrefsConverter.class)
+        @JdbcTypeCode(SqlTypes.JSON)
         @Column(name = "notification_prefs", columnDefinition = "json", nullable = false)
         private NotificationPreferences notificationPrefs = new NotificationPreferences();
 
-        @Convert(converter = PrivacySettingsConverter.class)
+       @JdbcTypeCode(SqlTypes.JSON)
         @Column(name = "privacy_settings", columnDefinition = "json", nullable = false)
         private PrivacySettings privacySettings = new PrivacySettings();
 
