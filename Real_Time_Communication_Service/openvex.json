@@ -1,0 +1,22 @@
+{
+  "metadata": {
+    "id": "com.om.backend/openvex-1",
+    "author": "com.om.security",
+    "role": "vendor",
+    "timestamp": "2025-10-02T00:00:00Z",
+    "version": "1"
+  },
+  "statements": [
+    {
+      "vulnerability": "CVE-2018-1258",
+      "products": [
+        "pkg:maven/org.springframework.security/spring-security-core@6.5.5",
+        "pkg:maven/org.springframework.security/spring-security-web@6.5.5",
+        "pkg:maven/org.springframework.security/spring-security-oauth2-resource-server@6.5.5"
+      ],
+      "status": "not_affected",
+      "justification": "requires_dependency",
+      "action_statement": "CVE-2018-1258 requires Spring Framework 5.0.5 with method security; this project uses Spring Framework 6.x via Spring Boot 3.5.x."
+    }
+  ]
+}

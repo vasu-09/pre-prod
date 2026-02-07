@@ -1,0 +1,11 @@
+# trivy.yaml
+vex:
+  - ./openvex.json      # path to your OpenVEX file
+scanners:
+  - vuln
+format: sarif
+output: trivy.sarif
+severity:
+  - HIGH
+  - CRITICAL
+ignore-unfixed: true

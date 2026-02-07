@@ -1,0 +1,44 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:todolist;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  sql:
+    init:
+      mode: never
+  data:
+    redis:
+      repositories:
+        enabled: false
+  cloud:
+    kubernetes:
+      enabled: false
+      discovery:
+        enabled: false
+    discovery:
+      enabled: false
+    openfeign:
+      client:
+        config:
+          authentication-service:
+            url: http://localhost:0
+  main:
+    allow-bean-definition-overriding: true
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
+logging:
+  level:
+    org:
+      springframework:
+        cloud:
+          kubernetes: OFF

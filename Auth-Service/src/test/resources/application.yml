@@ -1,0 +1,88 @@
+spring:
+  cloud:
+    discovery:
+      enabled: false
+    kubernetes:
+      discovery:
+        enabled: false
+  datasource:
+    url: jdbc:h2:mem:auth-test;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  sql:
+    init:
+      mode: never
+
+sms:
+  base-url: http://localhost:8080
+  api-key: test-key
+  client-id: test-client
+  sender-id: TESTID
+  number-format: CC91
+  transport: JSON
+  dlt:
+    template-id: template-1
+    content: OTP {#var#}
+  otp:
+    ttl-minutes: 5
+    digits: 6
+    per-minute-limit: 5
+    per-hour-limit: 10
+    persist-for-audit: false
+
+jwt:
+  alg: RS256
+  issuer: http://localhost
+  kid: test-key
+  private-key-pem: |-
+    MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQC0mTzmK0GoD7vN
+    73alMwp8Axb1IMMP5UM/UQBNmiIk57KdqPbHvqc7tpfEcWk7fZIKoPSd6Ms+wnOB
+    8MoAUT9kU3A0qI4zYQv1K2r6c56heqgL6K37HgEW/akeKmJkKDBAh9qX7t9pNLyP
+    RHAM0MRd2lZw+iv6kX3NTH1ZA6IwecUGN0LuTUHZf2WXifYT3MRBbEj9JbvgdCq0
+    FA5c4kkTbVF1I6NtHJOxDusqZ7R7FMt3Aj8aMjsjtXhdHQ1m4Md1arWU4Sn/VKSv
+    qNzajgxY715WQzCBcyyLs3mXLWdPEuyXu5b0Eb+TWfJg8o8JRUhuTbSvUrqaGpuz
+    JzQFlK7xAgMBAAECggEAEtFq0pL29u5Dbpxr8PUbZmZOBJci1tZX8PzdkA3Q+VEj
+    6qCvV4s1UsKzwrY3NbSKZ01z37u2PeELdyKMxzFaw8yb7ai96dBMFi0C1dD+r6sf
+    tTShYwAH3gpADn1yc3w/4YwmX1whGbhzM2ckA88saZkgFl/tqDYedSoUtOtCLFRp
+    nQzSdxnsAQRujJ1cu1MNVQLuKmRnYG2wRP3M1h+sMy4Lp/Q9RMIH8Q+oSybfKkKo
+    rIF7eD6q9Bg37FVpRfXiboZi5q6ksieJrtGTMgKMzo8twXupV450cTVX+oHXFI14
+    miwEkeTvBjj8dzwGS8EoSW6ZrHHaGkhqlF9ZT3v2bwKBgQDoUTpsXjdFfP9bFCm8
+    Ut7tu8AKbj5yTm0gXxBfWC+d45Qm9uNKipWGEYtqMHI5VYFl50GqpAAs2vniAdek
+    kJhce8qZK8g16YEcrxbt+6wD9s6FBDK10ohWNG2+WitmG9xAlr3wCJd1fYDn05hC
+    KXAxiVv2+opI9ayt+rcMSPMLnwKBgQDHAk8shqMJfZ33cUdYcxsKpaC6mCESS1Qo
+    kNSOGbQTKmpzdrn2d1mvZK9VNb8JU/SEs6QqNKYPwUtXTktA745zHqIM9n6jZLlG
+    5aM+7fZzrsLCvYu9jDE1b5Q2RHGKf3zIBVdYgrErNUGWpkBesIFiGSz7FCoMdPTN
+    rqs8YVs7bwKBgFM9V4ugrnktcml17gZWQx43WXXjTmiyhRNGPJ2NAXK3KkxTxdjd
+    kvm4q5Veym6Unoqes76qiI2J4GMEefmy/YSVrl/3egMnKWXXroWS2W2KLzEl8e2I
+    A+WvX2sG7+nkLaTO3jt1OJ+WWmu2OyXppxN4vgTefFHsBPVJkfDK6prNAoGAUHqP
+    mBsOfb0OD84AozVRXznhyPPSk/pgm1MOkjS0zPdfOzhtNc3IOBTIjvYAPn50KOIY
+    5nSKH1703+aqqiT2f3mI4SMhzWPjRVeCb+V9wASRgH10sH+sOsbXsiZ1oCO0S5NV
+    Ylbf3PBZiNnMuD465Hf358Wcx5LYmQElAHMCmQMCgYA7Uxt61foGlGtYig/hj3Nr
+    +rp8edS0SrPOLX7vH2pqa4ZSdZBbz/PYxQCG4igJozKERE4UrsEYThc7LwMe+7R+
+    tZRW/YXMPDwv5Cg37O6uI0nOwZkNlR6zPNi170vsgRvyK0IpBpz+8AT4t5QjBTvw
+    m52hs7e3khHwf7S3dYj48Q==
+    -----END PRIVATE KEY-----
+  access-ttl-min: 15
+  refresh-ttl-days: 30
+  audience: test-audience
+
+cors:
+  allowed-origins: http://localhost:3000
+
+app:
+  clock:
+    zone: UTC
+  issuer: http://localhost
+
+media:
+  bucket: test-bucket
+
+rtc:
+  base-url: http://localhost:8091

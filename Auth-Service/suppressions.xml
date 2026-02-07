@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+
+  <!-- FP: CVE-2018-1258 applies to Spring Framework 5.0.5 + method security,
+       not Spring 6.x / Boot 3.x. Suppress for all Spring Security 6.5.5 artifacts -->
+  <suppress until="2026-03-31">
+    <notes>Spring Security 6.5.5 mis-mapping - CVE-2018-1258 is not applicable to Spring Security 6.x</notes>
+    <cve>CVE-2018-1258</cve>
+    <cpe regex="true">^cpe:2\.3:a:pivotal_software:spring_security:6\.5\.5</cpe>
+    <cpe regex="true">^cpe:2\.3:a:pivotal:spring_security_oauth:6\.5\.5</cpe>
+    <cpe regex="true">^cpe:2\.3:a:pivotal_software:spring_security_oauth:6\.5\.5</cpe>
+    <cpe regex="true">^cpe:2\.3:a:web_project:web:6\.5\.5</cpe>
+  </suppress>
+
+</suppressions>

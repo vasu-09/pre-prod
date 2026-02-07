@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	 <parent>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-parent</artifactId>
+            <version>3.5.6</version>
+            <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+	<groupId>com.om</groupId>
+	<artifactId>api-gateway</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name>api-gateway</name>
+	<description>Demo project for Spring Boot</description>
+	<url/>
+	<licenses>
+		<license/>
+	</licenses>
+	<developers>
+		<developer/>
+	</developers>
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+	 <properties>
+                <java.version>17</java.version>
+                <spring-cloud.version>2025.0.0</spring-cloud.version>
+                <httpclient5.version>5.4.4</httpclient5.version>
+        </properties>
+	<dependencies>
+<!--		<dependency>-->
+<!--			<groupId>org.springframework.boot</groupId>-->
+<!--			<artifactId>spring-boot-starter-web</artifactId>-->
+<!--		</dependency>-->
+		<dependency>
+  			<groupId>org.apache.commons</groupId>
+  			<artifactId>commons-lang3</artifactId>
+  			<version>3.18.0</version> <!-- or newer -->
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webflux</artifactId>
+		</dependency>
+		<dependency>
+    		<groupId>org.springframework.boot</groupId>
+    		<artifactId>spring-boot-starter-reactor-netty</artifactId>
+  		</dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-config</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-api</artifactId>
+			<version>0.12.5</version>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-impl</artifactId>
+			<version>0.12.5</version>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
+			<groupId>io.jsonwebtoken</groupId>
+			<artifactId>jjwt-jackson</artifactId>
+			<version>0.12.5</version>
+			<scope>runtime</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+		</dependency>
+		<dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+            <version>${httpclient5.version}</version>
+        </dependency>
+		<dependency>
+			<groupId>org.springframework.cloud</groupId>
+			<artifactId>spring-cloud-starter-kubernetes-client</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+
+	</dependencies>
+	<dependencyManagement>
+  			<dependencies>
+    			<!-- you already have these -->
+    				<dependency>
+      						<groupId>org.springframework.cloud</groupId>
+      						<artifactId>spring-cloud-dependencies</artifactId>
+      						<version>${spring-cloud.version}</version>
+      						<type>pom</type>
+      						<scope>import</scope>
+    				</dependency>
+
+    				<dependency>
+      						<groupId>com.google.protobuf</groupId>
+      						<artifactId>protobuf-java</artifactId>
+      						<version>3.25.6</version>
+    				</dependency>
+
+    				<dependency>
+      						<groupId>io.netty</groupId>
+     						<artifactId>netty-bom</artifactId>
+      						<version>4.1.127.Final</version>
+      						<type>pom</type>
+      						<scope>import</scope>
+    				</dependency>
+
+    			<!-- NEW: resolve the Enforcer UPPER BOUND conflicts -->
+    				<dependency>
+      						<groupId>commons-io</groupId>
+      						<artifactId>commons-io</artifactId>
+      						<version>2.15.1</version>
+    				</dependency>
+
+    				<dependency>
+      						<groupId>com.google.errorprone</groupId>
+      						<artifactId>error_prone_annotations</artifactId>
+      						<version>2.41.0</version>
+    				</dependency>
+  			</dependencies>
+	</dependencyManagement>
+
+
+	<build>
+  <!-- you may already have <plugins> here; merge into it -->
+  <plugins>
+	<plugin>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-maven-plugin</artifactId>
+    </plugin>
+    <plugin>
+      <groupId>org.apache.maven.plugins</groupId>
+      <artifactId>maven-enforcer-plugin</artifactId>
+      <version>3.5.0</version>
+      <executions>
+        <execution>
+          <id>ban-vulnerable-ranges</id>
+          <phase>validate</phase>        <!-- ensure it runs early -->
+          <goals><goal>enforce</goal></goals>
+          <configuration>
+            <rules>
+              <!-- No protobuf older than the fixed version -->
+              <bannedDependencies>
+                <excludes>
+                  <exclude>com.google.protobuf:protobuf-java:(,3.25.6)</exclude>
+                </excludes>
+                <searchTransitive>true</searchTransitive>
+              </bannedDependencies>
+
+              <!-- No Netty below a modern floor -->
+              <bannedDependencies>
+                <excludes>
+                  <exclude>io.netty:*:(,4.1.96.Final)</exclude>
+                </excludes>
+                <searchTransitive>true</searchTransitive>
+              </bannedDependencies>
+
+              <requireUpperBoundDeps/>
+            </rules>
+            <fail>true</fail>
+          </configuration>
+        </execution>
+      </executions>
+    </plugin>
+  </plugins>
+</build>
+
+
+</project>

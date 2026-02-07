@@ -1,0 +1,110 @@
+spring:
+  application:
+    name: real-time-communication
+
+  rabbitmq:
+    addresses: ${SPRING_RABBITMQ_ADDRESSES:}
+    host: ${SPRING_RABBITMQ_HOST:${RABBITMQ_HOST:localhost}}
+    port: ${SPRING_RABBITMQ_PORT:${RABBITMQ_PORT:5672}}
+    username: ${SPRING_RABBITMQ_USERNAME:${RABBITMQ_USERNAME:guest}}
+    password: ${SPRING_RABBITMQ_PASSWORD:${RABBITMQ_PASSWORD:guest}}
+    virtual-host: ${SPRING_RABBITMQ_VIRTUAL_HOST:${RABBITMQ_VHOST:/}}
+    connection-timeout: ${SPRING_RABBITMQ_CONNECTION_TIMEOUT:60000}
+    requested-heartbeat: ${SPRING_RABBITMQ_REQUESTED_HEARTBEAT:30}
+
+  cloud:
+    kubernetes:
+      discovery:
+        enabled: ${SPRING_CLOUD_KUBERNETES_DISCOVERY_ENABLED:true}
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/real_time_communication}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:5}
+      minimum-idle: ${SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE:2}
+      max-lifetime: ${SPRING_DATASOURCE_HIKARI_MAX_LIFETIME:1740000}
+      idle-timeout: ${SPRING_DATASOURCE_HIKARI_IDLE_TIMEOUT:600000}
+
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+server:
+  port: ${SERVER_PORT:8091}
+
+logging:
+  level:
+    org:
+      hibernate:
+        SQL: WARN           # or INFO/ERROR/OFF
+        type:
+          descriptor:
+            sql:
+              BasicBinder: WARN
+
+outbox:
+  publish:
+    delay: 4000
+call:
+  timeout:
+    sweep:
+      delay: 10000
+
+management:
+  health:
+    elasticsearch:
+      enabled: ${MANAGEMENT_HEALTH_ELASTICSEARCH_ENABLED:false}
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:health,info,prometheus}
+  metrics:
+    tags:
+      app: ${MANAGEMENT_METRICS_TAGS_APP:rtc}
+      env: ${MANAGEMENT_METRICS_TAGS_ENV:prod}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+
+turn:
+  secret: ${TURN_SECRET_BASE64:iz/UpRRaJ0JMSdq5TmNpQwfSwiR4ft7oRZAZHCTjFoo=}   # Base64 secret shared with your TURN server (coturn static-auth-secret)
+  ttlSeconds: ${TURN_TTL_SECONDS:600}
+  urls: ${TURN_URLS:stun:turn.example.com:3478,turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp}
+
+media:
+  bucket: ${MEDIA_BUCKET:moc-media-bucket}
+  uploadExpirySeconds: ${MEDIA_UPLOAD_EXPIRY_SECONDS:600}
+  downloadExpirySeconds: ${MEDIA_DOWNLOAD_EXPIRY_SECONDS:300}
+
+# Kept as a property so you can override from env; usually this is just an ENV var read by Google SDKs.
+GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:/path/to/moc-service-account.json}
+
+jwt:
+  issuer: ${JWT_ISSUER:http://localhost:8092}
+  jwks-uri: ${JWT_JWKS_URI:http://localhost:8092/.well-known/jwks.json}
+  audience: ${JWT_AUDIENCE:}
+
+# Keep this custom and read it in a @ConfigurationProperties or @Value
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+rtc:
+  rabbit:
+    enabled: ${RTC_RABBIT_ENABLED:false}
+    stomp:
+      relay-host: ${RTC_RABBIT_STOMP_RELAY_HOST:localhost}
+      relay-port: ${RTC_RABBIT_STOMP_RELAY_PORT:61613}
+      client-login: ${RTC_RABBIT_STOMP_CLIENT_LOGIN:guest}
+      client-passcode: ${RTC_RABBIT_STOMP_CLIENT_PASSCODE:guest}
+      system-login: ${RTC_RABBIT_STOMP_SYSYEM_LOGIN:guest}
+      system-passcode: ${RTC_RABBIT_STOMP_SYSTEM_PASSCODE:guest}
+  redis:
+    enabled: false
+    url: ${RTC_REDIS_URL:redis://localhost:6379}

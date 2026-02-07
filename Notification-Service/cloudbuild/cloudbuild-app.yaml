@@ -1,0 +1,49 @@
+substitutions:
+  _PREPROD_PROJECT_ID: "moc-connect-preprod-25"
+  _PROD_PROJECT_ID: "moc-connect-prod-25"
+  _IMAGE_NAME: "notification-service"
+
+steps:
+  - name: maven:3.9.9-eclipse-temurin-21
+    id: test
+    entrypoint: mvn
+    args: ["test"]
+
+  - name: maven:3.9.9-eclipse-temurin-21
+    id: package
+    entrypoint: mvn
+    args: ["clean", "package", "-DskipTests"]
+
+  - name: gcr.io/cloud-builders/docker
+    id: build-image
+    args:
+      - build
+      - "-t"
+      - "asia-south1-docker.pkg.dev/${_PREPROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:$SHORT_SHA"
+      - "-t"
+      - "asia-south1-docker.pkg.dev/${_PREPROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:preprod"
+      - "-t"
+      - "asia-south1-docker.pkg.dev/${_PROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:$SHORT_SHA"
+      - "-t"
+      - "asia-south1-docker.pkg.dev/${_PROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:latest"
+      - "."
+
+  - name: gcr.io/cloud-builders/docker
+    id: push-image-preprod
+    args:
+      - push
+      - "asia-south1-docker.pkg.dev/${_PREPROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:preprod"
+
+  #- name: gcr.io/cloud-builders/docker
+  #  id: push-image-prod
+  #  args:
+  #   - push
+  #   - "asia-south1-docker.pkg.dev/${_PROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:latest"
+
+images:
+  - "asia-south1-docker.pkg.dev/${_PREPROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:preprod"
+  #- "asia-south1-docker.pkg.dev/${_PROD_PROJECT_ID}/moc-apps/${_IMAGE_NAME}:latest"
+
+
+options:
+  logging: CLOUD_LOGGING_ONLY

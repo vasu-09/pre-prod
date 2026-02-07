@@ -1,0 +1,25 @@
+# cloudbuild.yaml
+# Builds the Docker image and pushes 2 tags: :<shortsha> and :latest
+
+substitutions:
+  _REGION: "asia-south1"
+  _REPO:   "moc-docker"
+  _IMAGE:  "rtc-service"   # <--- change per repo (see list below)
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8   # faster builds; you can omit to save credits
+
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    id: Build image
+    args: [
+      "build",
+      "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:${SHORT_SHA}",
+      "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:latest",
+      "."
+    ]
+
+images:
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:${SHORT_SHA}"
+  - "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_IMAGE}:latest"

@@ -1,0 +1,44 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:todo_test;MODE=PostgreSQL;DATABASE_TO_UPPER=false;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+  cloud:
+    kubernetes:
+      discovery:
+        enabled: false
+  main:
+    allow-bean-definition-overriding: true
+  test:
+    database:
+      replace: none
+
+logging:
+  level:
+    org:
+      springframework:
+        security: WARN
+
+razorpay:
+  key: test
+  secret: test
+  webhookSecret: test
+
+payment:
+  token:
+    secret: 0123456789abcdef
+
+security:
+  oauth2:
+    resourceserver:
+      jwt:
+        jwk-set-uri: http://localhost/jwks.json
+        issuer-uri: http://localhost

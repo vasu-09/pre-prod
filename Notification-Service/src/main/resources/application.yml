@@ -1,0 +1,73 @@
+spring:
+  application:
+    name: notification-service
+
+  cloud:
+    kubernetes:
+      discovery:
+        enabled: ${SPRING_CLOUD_KUBERNETES_DISCOVERY_ENABLED:true}
+
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 200
+        one-indexed-parameters: false  # set true if you prefer page=1 to be the first page
+
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/notification_management}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: ${SPRING_JPA_SHOW_SQL:false}
+    properties:
+      hibernate:
+        format_sql: ${SPRING_JPA_FORMAT_SQL:false}
+
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI:http://localhost:8080/.well-known/jwks.json}
+
+server:
+  port: ${SERVER_PORT:8093}
+
+logging:
+  level:
+    com:
+      om:
+        Notification_Service: ${LOGGING_LEVEL_COM_OM_NOTIFICATION_SERVICE:INFO}
+    org:
+      hibernate:
+        SQL: ${LOGGING_LEVEL_ORG_HIBERNATE_SQL:WARN}
+        type:
+          descriptor:
+            sql:
+              BasicBinder: ${LOGGING_LEVEL_ORG_HIBERNATE_BINDER:WARN}
+
+  feign:
+    client:
+      config:
+        "real-time-communication":
+          connectTimeout: ${FEIGN_RTC_CONNECT_TIMEOUT:2000}
+          readTimeout: ${FEIGN_RTC_READ_TIMEOUT:3000}
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      rtc:
+        slidingWindowSize: ${R4J_RTC_SLIDING_WINDOW:100}
+        failureRateThreshold: ${R4J_RTC_FAILURE_RATE_THRESHOLD:50}
+
+
+
+# Keep this custom and read it in a @ConfigurationProperties or @Value
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}

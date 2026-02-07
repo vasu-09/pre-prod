@@ -1,0 +1,52 @@
+# CI for Authentication Service
+# Trigger will set:
+#   _ENV        = preprod|prod
+
+substitutions:
+  # Default value if trigger doesn't override
+  _ENV: "preprod"
+
+steps:
+  # 1) Unit tests
+  - name: gcr.io/cloud-builders/mvn
+    id: test
+    args: ['test']
+
+  # 2) Build jar (skip tests here to avoid running twice)
+  - name: gcr.io/cloud-builders/mvn
+    id: package
+    args: ['-B', '-DskipTests', 'package']
+
+  # 3) Build Docker image
+  - name: gcr.io/cloud-builders/docker
+    id: build-image
+    args:
+      - build
+      - '-t'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/moc-apps/auth-service:${SHORT_SHA}'
+      - '.'
+
+  # 4) Push Docker image
+  - name: gcr.io/cloud-builders/docker
+    id: push-image
+    args:
+      - push
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/moc-apps/auth-service:${SHORT_SHA}'
+
+  # 5) Optional: also tag image with env-friendly tag ("preprod","prod")
+  - name: gcr.io/cloud-builders/docker
+    id: tag-env
+    args:
+      - '-c'
+      - |
+        docker tag asia-south1-docker.pkg.dev/$PROJECT_ID/moc-apps/auth-service:${SHORT_SHA} \
+                   asia-south1-docker.pkg.dev/$PROJECT_ID/moc-apps/auth-service:${_ENV}
+        docker push asia-south1-docker.pkg.dev/$PROJECT_ID/moc-apps/auth-service:${_ENV}
+    entrypoint: bash
+
+images:
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/moc-apps/auth-service:${SHORT_SHA}'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/moc-apps/auth-service:${_ENV}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
