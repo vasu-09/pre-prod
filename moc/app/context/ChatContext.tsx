@@ -1,3 +1,4 @@
+import { useSegments } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { inboxQueue, roomTopic, sendInboxAck as sendInboxAckDestination } from '../constants/stompEndpoints';
@@ -97,6 +98,7 @@ const deriveRoomKeyFromPayload = (payload: any, currentUserId: number | null) =>
 };
 
 export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
+  const segments = useSegments();
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const subscriptionsRef = useRef<Record<string, () => void>>({});
@@ -104,6 +106,13 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   const inboxUnsubRef = useRef<(() => void) | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const roomsRef = useRef<RoomSummary[]>([]);
+  const routePath = segments.join('/');
+  const shouldConnectRealtime = ![
+    'screens/PermissionsScreen',
+    'screens/LoginScreen',
+    'screens/OtpScreen',
+    'screens/CompleteProfileScreen',
+  ].includes(routePath);
 
   useEffect(() => {
     roomsRef.current = rooms;
@@ -379,13 +388,13 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
   );
 
   const syncPendingMessages = useCallback(() => {
-    if (!sessionReady || !accessToken) return;
+    if (!sessionReady || !accessToken || !shouldConnectRealtime) return;
     fetchPendingMessages()
       .then(list => {
         list.forEach(handleInboxPayload);
       })
       .catch(err => console.warn('[WS][INBOX] pending sync failed', err));
-  }, [accessToken, handleInboxPayload, sessionReady]);
+  }, [accessToken, handleInboxPayload, sessionReady, shouldConnectRealtime]);
 
 
   const value = useMemo(
@@ -398,13 +407,13 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
   }, [rooms]);
 
   useEffect(() => {
-    if (!sessionReady || !accessToken) return;
+    if (!sessionReady || !accessToken || !shouldConnectRealtime) return;
 
     stompClient.ensureConnected().catch(err => console.warn('Global STOMP connect failed', err));
-  }, [sessionReady, accessToken]);
+  }, [sessionReady, accessToken, shouldConnectRealtime]);
 
   useEffect(() => {
-    if (!sessionReady || !accessToken) return;
+    if (!sessionReady || !accessToken || !shouldConnectRealtime) return;
     let cancelled = false;
 
     syncPendingMessages();
@@ -421,11 +430,11 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
         removeListener();
       }
     };
-  }, [accessToken, sessionReady, syncPendingMessages]);
+  }, [accessToken, sessionReady, shouldConnectRealtime, syncPendingMessages]);
 
 
   useEffect(() => {
-    if (!sessionReady || !accessToken || !currentUserId) {
+    if (!sessionReady || !accessToken || !currentUserId || !shouldConnectRealtime) {
       return;
     }
 
@@ -467,11 +476,11 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
         inboxUnsubRef.current = null;
       }
     };
-  }, [sessionReady, accessToken, currentUserId, handleInboxPayload]);
+  }, [sessionReady, accessToken, currentUserId, handleInboxPayload, shouldConnectRealtime]);
 
 
  useEffect(() => {
-    if (!sessionReady || !accessToken) {
+    if (!sessionReady || !accessToken || !shouldConnectRealtime) {
       return;
     }
 
@@ -537,7 +546,7 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
     return () => {
       cancelled = true;
     };
-  }, [rooms, sessionReady, accessToken, currentUserId, incrementUnread, updateRoomActivity, upsertRoom]);
+  }, [rooms, sessionReady, accessToken, currentUserId, incrementUnread, shouldConnectRealtime, updateRoomActivity, upsertRoom]);
 
 
   useEffect(
