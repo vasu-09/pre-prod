@@ -409,6 +409,10 @@ const warnIfLikelyUnreachableBaseUrl = (baseUrl: string, label = 'API base URL')
 };
 
 const getBaseURL = () => {
+  if (!__DEV__) {
+    return 'https://api-preprod.mocconnect.in';
+  }
+
   const explicitBase = getExplicitBaseUrl();
   if (explicitBase) {
     return explicitBase;
@@ -428,6 +432,7 @@ const getBaseURL = () => {
 };
 
 export const apiBaseURL = getBaseURL();
+console.log('[apiClient] apiBaseURL =', apiBaseURL);
 warnIfLikelyUnreachableBaseUrl(apiBaseURL, 'API base URL');
 
 const getWsBaseURL = () => getExplicitWsUrl() ?? apiBaseURL;
@@ -516,6 +521,16 @@ const refreshAccessToken = async (): Promise<string | null> => {
 
   return refreshPromise;
 };
+
+apiClient.interceptors.request.use((config) => {
+  console.log('[apiClient] OUT', {
+    method: config.method,
+    baseURL: config.baseURL,
+    url: config.url,
+    fullUrl: `${config.baseURL ?? ''}${config.url ?? ''}`,
+  });
+  return config;
+});
 
 apiClient.interceptors.request.use(async (config) => {
   try {

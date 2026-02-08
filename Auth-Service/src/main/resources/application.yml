@@ -57,7 +57,7 @@ sms:
 
 jwt:
   alg: RS256
-  issuer: ${JWT_ISSUER:http://localhost:8092}       # set to your real base URL/host:port
+  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}       # set to your real base URL/host:port
   kid: ${JWT_KID::main-2025-08-16}                  # any stable ID for this key
   audience: ${JWT_AUDIENCE:}
   private-key-pem: ${JWT_PRIVATE_KEY_PEM:}
@@ -87,4 +87,4 @@ cors:
 app:
   clock:
     zone: Asia/Kolkata
-  issuer: ${JWT_ISSUER:http://localhost:8092}
+  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}

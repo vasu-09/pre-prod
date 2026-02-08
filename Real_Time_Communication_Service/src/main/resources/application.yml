@@ -87,8 +87,8 @@ media:
 GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:/path/to/moc-service-account.json}
 
 jwt:
-  issuer: ${JWT_ISSUER:http://localhost:8092}
-  jwks-uri: ${JWT_JWKS_URI:http://localhost:8092/.well-known/jwks.json}
+  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}
+  jwks-uri: ${JWT_JWKS_URI:http://auth-service.moc-preprod.svc.cluster.local:8092/.well-known/jwks.json}
   audience: ${JWT_AUDIENCE:}
 
 # Keep this custom and read it in a @ConfigurationProperties or @Value

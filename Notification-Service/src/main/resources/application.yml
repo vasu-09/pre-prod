@@ -34,7 +34,7 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          jwk-set-uri: ${SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI:http://localhost:8080/.well-known/jwks.json}
+          jwk-set-uri: ${SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI:http://auth-service.moc-preprod.svc.cluster.local:8092/.well-known/jwks.json}
 
 server:
   port: ${SERVER_PORT:8093}
