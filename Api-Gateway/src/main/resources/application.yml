@@ -76,7 +76,7 @@ spring:
 <<<<<<< HEAD
           issuer-uri: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}
 =======
-          issuer-uri: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:80/.well-known/jwks.json}
+          issuer-uri: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092/.well-known/jwks.json}
 >>>>>>> e420e5bc644e032cfab8ac9ec8aef514f530e6ad
 #          jwk-set-uri: http://localhost:8092/.well-known/jwks.json
 jwt:
