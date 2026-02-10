@@ -46,8 +46,8 @@ public class SecurityConfig {
      */
     @Bean
     public JwtDecoder jwtDecoder(
-            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:http://auth-service.moc-preprod.svc.cluster.local:8092/.well-known/jwks.json}") String jwkSetUri,
-            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri:http://auth-service.moc-preprod.svc.cluster.local:8092}") String issuer) {
+            @Value("${spring.security.oauth2.resourceserver.jwt.jwk-set-uri:http://auth-service.moc-preprod.svc.cluster.local:80/.well-known/jwks.json}") String jwkSetUri,
+            @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri:https://api-preprod.mocconnect.in}") String issuer) {
 
         NimbusJwtDecoder decoder = NimbusJwtDecoder.withJwkSetUri(jwkSetUri).build();
         OAuth2TokenValidator<Jwt> validator = JwtValidators.createDefaultWithIssuer(issuer);

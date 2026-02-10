@@ -18,7 +18,7 @@ spring:
         - id: auth-service
           uri: http://auth-service.moc-preprod.svc.cluster.local:80         # service ID is stable; keep literal
           predicates:
-            - Path=/auth/**,/user/**,/contacts/**,/.well-known/jwks.json,/v1/keys/**,/webhooks/sms-dlr,
+            - Path=/auth/**,/user/**,/contacts/**,/.well-known/jwks.json,/v1/keys/**,/webhooks/sms-dlr
 #          filters:
 #            - StripPrefix=1
 
@@ -74,7 +74,7 @@ spring:
         jwt:
           issuer-uri: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}
           jwk-set-uri: ${JWT_JWKS_URI:http://auth-service.moc-preprod.svc.cluster.local:8092/.well-known/jwks.json}
-          
+
 jwt:
   audience: ${JWT_AUDIENCE:}
 

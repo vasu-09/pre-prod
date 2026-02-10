@@ -35,8 +35,8 @@ security:
   oauth2:
     resourceserver:
       jwt:
-        issuer-uri: ${AUTH_ISSUER_URI:http://auth-service.moc-preprod.svc.cluster.local:8092}
-        jwk-set-uri: ${AUTH_JWK_SET_URI:http://auth-service.moc-preprod.svc.cluster.local:8092/.well-known/jwks.json}
+        issuer-uri: ${AUTH_ISSUER_URI:https://api-preprod.mocconnect.in}
+        jwk-set-uri: ${AUTH_JWK_SET_URI:http://auth-service.moc-preprod.svc.cluster.local:80/.well-known/jwks.json}
 server:
   port: ${SERVER_PORT:8090}
 
