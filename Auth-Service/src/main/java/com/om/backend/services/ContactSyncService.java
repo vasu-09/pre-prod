@@ -14,11 +14,13 @@ import org.springframework.util.StringUtils;
 import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class ContactSyncService {
    private static final Logger log = LoggerFactory.getLogger(ContactSyncService.class);
+   private static final Pattern PHONE_ALLOWED_CHARS = Pattern.compile("[^0-9+]");
 
     private final UserRepository userRepo;
     private final PhoneNumberCanonicalizer phoneCanonicalizer;
@@ -29,22 +31,20 @@ public class ContactSyncService {
             return List.of();
         }
 
-       log.warn("Contact sync received {} phone numbers from client: {}", rawPhones.size(), rawPhones);
-       rawPhones.stream().limit(20).forEach(phone ->
-                log.warn("Contact sync rawPhone='{}' len={}", phone, phone == null ? null : phone.length()));
+        List<String> sanitizedPhones = sanitizeInputPhones(rawPhones);
+        log.info("Contact sync received {} phone entries; {} non-empty values after basic sanitization",
+                rawPhones.size(), sanitizedPhones.size());
 
-        Set<String> normalized = rawPhones.stream()
-                .filter(StringUtils::hasText)
+        Set<String> normalized = sanitizedPhones.stream()
                 .flatMap(phone -> buildLookupCandidates(phone).stream())
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
 
         if (normalized.isEmpty()) {
-            log.warn("Contact sync normalized 0 phone numbers after filtering invalid input");
-            log.warn("Contact sync returning 0 matched phone numbers");
+             log.info("Contact sync normalized 0 phone numbers after filtering invalid input");
             return List.of();
         }
 
-        log.warn("Contact sync normalized {} phone numbers: {}", normalized.size(), normalized);
+        log.info("Contact sync normalized {} unique phone variants for lookup", normalized.size());
         Set<User> users = new LinkedHashSet<>(userRepo.findByPhoneNumberIn(List.copyOf(normalized)));
 
         Set<String> canonicalDigits = normalized.stream()
@@ -59,9 +59,17 @@ public class ContactSyncService {
                 .map(u -> new ContactMatchDto(u.getId(), u.getPhoneNumber()))
                 .toList();
 
-        log.warn("Contact sync returning {} matched phone numbers: {}", matches.size(),
-                matches.stream().map(ContactMatchDto::getPhone).toList());
+        log.info("Contact sync returning {} matched phone numbers", matches.size());
         return matches;
+    }
+
+   private List<String> sanitizeInputPhones(List<String> rawPhones) {
+        return rawPhones.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .map(phone -> PHONE_ALLOWED_CHARS.matcher(phone).replaceAll(""))
+                .filter(StringUtils::hasText)
+                .toList();
     }
 
     private String safeNormalize(String phone) {
@@ -75,14 +83,18 @@ public class ContactSyncService {
    private Set<String> buildLookupCandidates(String rawPhone) {
         Set<String> variants = new LinkedHashSet<>();
 
-       String e164 = safeNormalize(rawPhone);
+        String e164 = safeNormalize(rawPhone);
         if (e164 == null) {
-            log.warn("Skipping invalid phone number during contact sync: {}", rawPhone);
+            log.debug("Skipping invalid phone number during contact sync");
             return variants;
         }
         variants.add(e164);
         variants.add(e164.substring(1));
-        variants.add(PhoneNumberUtil1.toIndiaNsn10(e164));
+        try {
+            variants.add(PhoneNumberUtil1.toIndiaNsn10(e164));
+        } catch (IllegalArgumentException ex) {
+            log.debug("Skipping NSN variant for non-mobile number during contact sync");
+        }
         return variants;
     }
    
