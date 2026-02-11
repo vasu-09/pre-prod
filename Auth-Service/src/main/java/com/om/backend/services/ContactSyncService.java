@@ -2,6 +2,7 @@ package com.om.backend.services;
 
 import com.om.backend.Dto.ContactMatchDto;
 import com.om.backend.util.PhoneNumberCanonicalizer;
+import com.om.backend.util.PhoneNumberUtil1;
 import com.om.backend.Model.User;
 import com.om.backend.Repositories.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -11,7 +12,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
-import java.util.Objects;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -29,12 +31,10 @@ public class ContactSyncService {
 
         log.info("Contact sync received {} phone numbers from client: {}", rawPhones.size(), rawPhones);
 
-        List<String> normalized = rawPhones.stream()
+        Set<String> normalized = rawPhones.stream()
                 .filter(StringUtils::hasText)
-                .map(this::safeNormalize)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
+                .flatMap(phone -> buildLookupCandidates(phone).stream())
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
 
         if (normalized.isEmpty()) {
             log.info("Contact sync has no valid phone numbers after normalization");
@@ -43,7 +43,7 @@ public class ContactSyncService {
 
         log.info("Contact sync normalized {} phone numbers: {}", normalized.size(), normalized);
         // batch find: create an index on phone_number
-        List<User> users = userRepo.findByPhoneNumberIn(normalized);
+        List<User> users = userRepo.findByPhoneNumberIn(List.copyOf(normalized));
         List<ContactMatchDto> matches = users.stream()
                 .map(u -> new ContactMatchDto(u.getId(), u.getPhoneNumber()))
                 .toList();
@@ -57,8 +57,30 @@ public class ContactSyncService {
         try {
             return phoneCanonicalizer.normalize(phone);
         } catch (IllegalArgumentException ex) {
-            log.warn("Skipping invalid phone number during contact sync: {}", phone);
             return null;
         }
+    }
+
+   private Set<String> buildLookupCandidates(String rawPhone) {
+        Set<String> variants = new LinkedHashSet<>();
+
+        String configuredNormalized = safeNormalize(rawPhone);
+        if (configuredNormalized != null) {
+            variants.add(configuredNormalized);
+            if (configuredNormalized.startsWith("+")) {
+                variants.add(configuredNormalized.substring(1));
+            }
+        }
+
+        try {
+            String e164 = PhoneNumberUtil1.toE164India(rawPhone);
+            variants.add(e164);
+            variants.add(e164.substring(1));
+            variants.add(PhoneNumberUtil1.toIndiaNsn10(rawPhone));
+        } catch (IllegalArgumentException ex) {
+            log.warn("Skipping invalid phone number during contact sync: {}", rawPhone);
+        }
+
+        return variants;
     }
 }
