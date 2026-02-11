@@ -37,18 +37,27 @@ public class ContactSyncService {
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
 
         if (normalized.isEmpty()) {
-            log.info("Contact sync has no valid phone numbers after normalization");
+            log.warn("Contact sync normalized 0 phone numbers after filtering invalid input");
+            log.warn("Contact sync returning 0 matched phone numbers");
             return List.of();
         }
 
-        log.info("Contact sync normalized {} phone numbers: {}", normalized.size(), normalized);
-        // batch find: create an index on phone_number
-        List<User> users = userRepo.findByPhoneNumberIn(List.copyOf(normalized));
+        log.warn("Contact sync normalized {} phone numbers: {}", normalized.size(), normalized);
+        Set<User> users = new LinkedHashSet<>(userRepo.findByPhoneNumberIn(List.copyOf(normalized)));
+
+        Set<String> canonicalDigits = normalized.stream()
+                .map(this::digitsOnly)
+                .filter(StringUtils::hasText)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+
+        if (!canonicalDigits.isEmpty()) {
+            users.addAll(userRepo.findByPhoneNumberCanonicalDigitsIn(List.copyOf(canonicalDigits)));
+        }
         List<ContactMatchDto> matches = users.stream()
                 .map(u -> new ContactMatchDto(u.getId(), u.getPhoneNumber()))
                 .toList();
 
-        log.info("Contact sync returning {} matched phone numbers: {}", matches.size(),
+        log.warn("Contact sync returning {} matched phone numbers: {}", matches.size(),
                 matches.stream().map(ContactMatchDto::getPhone).toList());
         return matches;
     }
@@ -82,5 +91,9 @@ public class ContactSyncService {
         }
 
         return variants;
+    }
+   
+   private String digitsOnly(String input) {
+        return input == null ? "" : input.replaceAll("[^0-9]", "");
     }
 }

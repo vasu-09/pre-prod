@@ -4,7 +4,6 @@ import com.om.backend.Model.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.security.core.parameters.P;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -26,6 +25,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<String> findPhoneNumbersByIds(@Param("id") List<Long> id);
 
     List<User> findByPhoneNumberIn(List<String> e164Phones);
-
-
+    @Query(value = """
+            SELECT *
+            FROM users u
+            WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(u.phone_number), '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') IN (:phoneNumbers)
+            """, nativeQuery = true)
+    List<User> findByPhoneNumberCanonicalDigitsIn(@Param("phoneNumbers") List<String> phoneNumbers);
 }
