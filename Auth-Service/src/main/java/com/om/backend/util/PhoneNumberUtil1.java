@@ -22,6 +22,31 @@ public final class PhoneNumberUtil1 {
         }
     }
 
+    /**
+     * Lenient Indian E.164 normalizer.
+     * Accepts common variants like 9876543210, 919876543210, 09876543210 and returns +919876543210.
+     */
+    public static String toE164IndiaLenient(String raw) {
+        if (raw == null) {
+            throw new IllegalArgumentException("phone is null");
+        }
+
+        String cleaned = raw.trim().replaceAll("[^0-9+]", "");
+        String digits = cleaned.startsWith("+") ? cleaned.substring(1) : cleaned;
+
+        if (!cleaned.startsWith("+")) {
+            if (digits.matches("^[6-9]\\d{9}$")) {
+                cleaned = "+91" + digits;
+            } else if (digits.matches("^91[6-9]\\d{9}$")) {
+                cleaned = "+" + digits;
+            } else if (digits.matches("^0[6-9]\\d{9}$")) {
+                cleaned = "+91" + digits.substring(1);
+            }
+        }
+
+        return toE164India(cleaned);
+    }
+
     /** Returns the 10-digit national number (e.g., 9876543210). */
     public static String toIndiaNsn10(String raw) {
         try {

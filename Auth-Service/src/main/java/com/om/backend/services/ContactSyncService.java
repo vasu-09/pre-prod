@@ -29,7 +29,9 @@ public class ContactSyncService {
             return List.of();
         }
 
-        log.info("Contact sync received {} phone numbers from client: {}", rawPhones.size(), rawPhones);
+       log.warn("Contact sync received {} phone numbers from client: {}", rawPhones.size(), rawPhones);
+       rawPhones.stream().limit(20).forEach(phone ->
+                log.warn("Contact sync rawPhone='{}' len={}", phone, phone == null ? null : phone.length()));
 
         Set<String> normalized = rawPhones.stream()
                 .filter(StringUtils::hasText)
@@ -73,23 +75,14 @@ public class ContactSyncService {
    private Set<String> buildLookupCandidates(String rawPhone) {
         Set<String> variants = new LinkedHashSet<>();
 
-        String configuredNormalized = safeNormalize(rawPhone);
-        if (configuredNormalized != null) {
-            variants.add(configuredNormalized);
-            if (configuredNormalized.startsWith("+")) {
-                variants.add(configuredNormalized.substring(1));
-            }
-        }
-
-        try {
-            String e164 = PhoneNumberUtil1.toE164India(rawPhone);
-            variants.add(e164);
-            variants.add(e164.substring(1));
-            variants.add(PhoneNumberUtil1.toIndiaNsn10(rawPhone));
-        } catch (IllegalArgumentException ex) {
+       String e164 = safeNormalize(rawPhone);
+        if (e164 == null) {
             log.warn("Skipping invalid phone number during contact sync: {}", rawPhone);
+            return variants;
         }
-
+        variants.add(e164);
+        variants.add(e164.substring(1));
+        variants.add(PhoneNumberUtil1.toIndiaNsn10(e164));
         return variants;
     }
    

@@ -1,6 +1,5 @@
 package com.om.backend.util;
 
-import com.om.backend.Config.SmsProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -12,11 +11,7 @@ import org.springframework.util.StringUtils;
 @Component
 public class PhoneNumberCanonicalizer {
 
-    private final SmsProperties smsProperties;
-
-    public PhoneNumberCanonicalizer(SmsProperties smsProperties) {
-        this.smsProperties = smsProperties;
-    }
+    public PhoneNumberCanonicalizer() {}
 
     /**
      * Normalizes the incoming phone number into the format configured for SMS delivery/storage.
@@ -26,12 +21,6 @@ public class PhoneNumberCanonicalizer {
         if (!StringUtils.hasText(rawPhone)) {
             return null;
         }
-
-        if ("NSN10".equalsIgnoreCase(smsProperties.getNumberFormat())) {
-            return PhoneNumberUtil1.toIndiaNsn10(rawPhone);
-        }
-
-        // Default is "CC91" (91 + national 10 digits without '+').
-        return PhoneNumberUtil1.toIndia91NoPlus(rawPhone);
+        return PhoneNumberUtil1.toE164IndiaLenient(rawPhone);
     }
 }
