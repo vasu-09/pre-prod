@@ -72,20 +72,17 @@ public class ContactSyncService {
                 .toList();
     }
 
-    private String safeNormalize(String phone) {
-        try {
-            return phoneCanonicalizer.normalize(phone);
-        } catch (IllegalArgumentException ex) {
-            return null;
-        }
-    }
-
-   private Set<String> buildLookupCandidates(String rawPhone) {
+    private Set<String> buildLookupCandidates(String rawPhone) {
         Set<String> variants = new LinkedHashSet<>();
 
-        String e164 = safeNormalize(rawPhone);
-        if (e164 == null) {
-            log.debug("Skipping invalid phone number during contact sync");
+        String e164;
+        try {
+            e164 = phoneCanonicalizer.normalize(rawPhone);
+        } catch (IllegalArgumentException ex) {
+            log.debug("Skipping invalid/non-mobile phone during contact sync: {}", rawPhone);
+            return variants;
+        }
+       if (!StringUtils.hasText(e164)) {
             return variants;
         }
         variants.add(e164);
@@ -93,7 +90,7 @@ public class ContactSyncService {
         try {
             variants.add(PhoneNumberUtil1.toIndiaNsn10(e164));
         } catch (IllegalArgumentException ex) {
-            log.debug("Skipping NSN variant for non-mobile number during contact sync");
+            log.debug("Skipping NSN variant for phone: {}", e164);
         }
         return variants;
     }

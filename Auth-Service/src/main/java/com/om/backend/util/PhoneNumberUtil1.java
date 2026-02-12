@@ -11,6 +11,7 @@ public final class PhoneNumberUtil1 {
 
     /** Returns +91XXXXXXXXXX — good for storage/logs. */
     public static String toE164India(String raw) {
+       
         try {
             Phonenumber.PhoneNumber p = U.parse(raw, "IN");
             if (!U.isValidNumberForRegion(p, "IN")) {
@@ -34,14 +35,14 @@ public final class PhoneNumberUtil1 {
         String cleaned = raw.trim().replaceAll("[^0-9+]", "");
         String digits = cleaned.startsWith("+") ? cleaned.substring(1) : cleaned;
 
-        if (!cleaned.startsWith("+")) {
-            if (digits.matches("^[6-9]\\d{9}$")) {
-                cleaned = "+91" + digits;
-            } else if (digits.matches("^91[6-9]\\d{9}$")) {
-                cleaned = "+" + digits;
-            } else if (digits.matches("^0[6-9]\\d{9}$")) {
-                cleaned = "+91" + digits.substring(1);
-            }
+        if (digits.matches("^[6-9]\\d{9}$")) {
+            return "+91" + digits;
+        }
+        if (digits.matches("^91[6-9]\\d{9}$")) {
+            return "+" + digits;
+        }
+        if (digits.matches("^0[6-9]\\d{9}$")) {
+            return "+91" + digits.substring(1);
         }
 
         return toE164India(cleaned);
@@ -63,7 +64,7 @@ public final class PhoneNumberUtil1 {
             throw new IllegalArgumentException("Invalid Indian mobile: " + raw, e);
         }
     }
-
+    
     /** Returns 91 + 10-digit (no '+'), in case the provider wants “91XXXXXXXXXX”. */
     public static String toIndia91NoPlus(String raw) {
         return "91" + toIndiaNsn10(raw);
