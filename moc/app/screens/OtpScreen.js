@@ -5,6 +5,7 @@ import { getDeviceMetadata } from '../services/deviceMetadata';
 
 import apiClient, { apiBaseURL } from '../services/apiClient';
 import { saveSession } from '../services/authStorage';
+import { normalizeIndianPhoneNumber } from '../services/phoneNumber';
 
 const OtpScreen = () => {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -15,7 +16,8 @@ const OtpScreen = () => {
   const navigation = useNavigation();
 
   const route = useRoute();
-  const phoneNumber = route?.params?.phone ?? route?.params?.phoneNumber ?? '';
+  const rawPhoneNumber = route?.params?.phone ?? route?.params?.phoneNumber ?? '';
+  const phoneNumber = normalizeIndianPhoneNumber(rawPhoneNumber) ?? rawPhoneNumber;
 
   const handleChange = (text, index) => {
     if (!/^\d?$/.test(text)) return; // Allow only single digit

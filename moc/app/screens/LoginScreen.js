@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Keyboard, Platform, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import apiClient, { apiBaseURL } from '../services/apiClient';
+import { normalizeIndianPhoneNumber } from '../services/phoneNumber';
 
 const LoginScreen = () => {
   const router = useRouter();
@@ -10,16 +11,21 @@ const LoginScreen = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const sendOtp = async (trimmedPhone) => {
+    const normalizedPhone = normalizeIndianPhoneNumber(trimmedPhone);
+    if (!normalizedPhone) {
+      setError('Please enter a valid 10-digit phone number.');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
       setError('');
 
-      await apiClient.post('/auth/otp/send', { phone: trimmedPhone });
+      await apiClient.post('/auth/otp/send', { phone: normalizedPhone });
 
      router.push({
         pathname: '/screens/OtpScreen',
-        params: { phone: trimmedPhone },
+        params: { phone: normalizedPhone },
       });
     } catch (err) {
       console.error('Failed to send OTP:', err);

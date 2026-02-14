@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
+import { normalizeIndianPhoneNumber } from './phoneNumber';
 import { createIntegrityStorage, normalizeSecureStoreKey, type StorageHandler } from './secureStorage';
 
 const ACCESS_TOKEN_KEY = 'auth.accessToken';
@@ -193,11 +194,13 @@ export const saveSession = async ({
     extractClaimString(claims?.['userId']) ??
     extractClaimString(claims?.['sub']);
 
-  const derivedUsername =
+  const rawDerivedUsername =
     extractClaimString(username) ??
     extractClaimString(claims?.['username']) ??
     extractClaimString(claims?.['phoneNumber']) ??
     extractClaimString(claims?.['phone']);
+
+    const derivedUsername = normalizeIndianPhoneNumber(rawDerivedUsername) ?? rawDerivedUsername;
   await Promise.all([
     setItem(ACCESS_TOKEN_KEY, accessToken ?? null),
     setItem(REFRESH_TOKEN_KEY, refreshToken ?? null),
@@ -223,11 +226,12 @@ export const updateSessionTokens = async ({
 
   const claimUserId =
     extractClaimString(claims?.['userId']) ?? extractClaimString(claims?.['sub']);
-  const claimUsername =
+  const rawClaimUsername =
     extractClaimString(claims?.['username']) ??
     extractClaimString(claims?.['phoneNumber']) ??
     extractClaimString(claims?.['phone']);
 
+    const claimUsername = normalizeIndianPhoneNumber(rawClaimUsername) ?? rawClaimUsername;
   await Promise.all([
     setItem(ACCESS_TOKEN_KEY, accessToken ?? undefined),
     setItem(REFRESH_TOKEN_KEY, refreshToken ?? undefined),

@@ -1,6 +1,6 @@
 package com.om.To_Do.List.ecosystem.model;
 
-
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -19,6 +19,7 @@ public class ListRecipient {
 
     @ManyToOne
     @JoinColumn(name = "list_id")
+    @JsonIgnore
     private ToDoList list;
 
 

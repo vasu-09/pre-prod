@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-
 import apiClient from '../services/apiClient';
 import { getStoredSession } from '../services/authStorage';
 import {
@@ -24,6 +23,7 @@ import {
   initializeDatabase,
   saveListSummaryToDb,
 } from '../services/database';
+import { normalizeIndianPhoneNumber } from '../services/phoneNumber';
 
 
 const parseSubQuantities = (value) => {
@@ -44,35 +44,7 @@ const parseSubQuantities = (value) => {
   }
 };
 
-const normalizePhoneForApi = (value) => {
-  if (!value) {
-    return null;
-  }
-
-  const trimmed = String(value).trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const digitsOnly = trimmed.replace(/\D/g, '');
-  if (!digitsOnly) {
-    return trimmed;
-  }
-
-  if (digitsOnly.length === 11 && digitsOnly.startsWith('0')) {
-    return `91${digitsOnly.slice(1)}`;
-  }
-
-  if (digitsOnly.length === 10) {
-    return `91${digitsOnly}`;
-  }
-
-  if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
-    return digitsOnly;
-  }
-
-  return digitsOnly;
-};
+const normalizePhoneForApi = (value) => normalizeIndianPhoneNumber(value);
 
 const formatPriceText = (priceText) => {
   if (priceText == null) {

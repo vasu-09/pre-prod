@@ -1,6 +1,7 @@
 import type { Contact, PhoneNumber } from 'expo-contacts';
 
 import apiClient from './apiClient';
+import { normalizeIndianPhoneNumber } from './phoneNumber';
 
 export interface ContactMatch {
   userId: number;
@@ -12,42 +13,8 @@ export interface ContactDetails {
   imageUri?: string | null;
 }
 
-export const normalizePhoneNumber = (value: string): string | null => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  let sanitized = trimmed.replace(/[^\d+]/g, '');
-
-  if (!sanitized) {
-    return null;
-  }
-
-  if (sanitized.startsWith('00')) {
-    sanitized = sanitized.slice(2);
-  }
-
-  if (sanitized.startsWith('+')) {
-    sanitized = sanitized.slice(1);
-  }
-
-  const digitsOnly = sanitized.replace(/\D/g, '');
-  
-  if (digitsOnly.length === 10) {
-    return `+91${digitsOnly}`;
-  }
-
-  if (digitsOnly.length === 11 && digitsOnly.startsWith('0')) {
-    return `+91${digitsOnly.slice(1)}`;
-  }
-
-  if (digitsOnly.length === 12 && digitsOnly.startsWith('91')) {
-   return `+${digitsOnly}`;
-  }
-
-  return null;
-};
+export const normalizePhoneNumber = (value: string): string | null =>
+  normalizeIndianPhoneNumber(value);
 
 const collectPhoneNumbers = (contacts: Contact[]): string[] => {
   const numbers = new Set<string>();
