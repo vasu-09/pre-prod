@@ -61,6 +61,18 @@ class SimpleStompClient {
     this.token = token;
   }
 
+  private resolveStompHost() {
+    if (DEFAULT_STOMP_HOST && DEFAULT_STOMP_HOST !== '/') {
+      return DEFAULT_STOMP_HOST;
+    }
+
+    try {
+      return new URL(this.url).host || '/';
+    } catch {
+      return '/';
+    }
+  }
+
   isConnected() {
     return this.connected;
   }
@@ -99,7 +111,7 @@ class SimpleStompClient {
           const connectHeaders: Record<string, string> = {
             'accept-version': '1.2',
             'heart-beat': HEARTBEAT,
-            host: DEFAULT_STOMP_HOST,
+            host: this.resolveStompHost(),
           };
 
           
@@ -305,24 +317,9 @@ class SimpleStompClient {
     }
      debugLog('RAW OUTBOUND FRAME', JSON.stringify(frame + '\0'));
 
-    const encode = (text: string): Uint8Array => {
-      if (typeof TextEncoder !== 'undefined') {
-        return new TextEncoder().encode(text);
-      }
-
-      const arr = new Uint8Array(text.length);
-      for (let i = 0; i < text.length; i++) {
-        arr[i] = text.charCodeAt(i) & 0xff;
-      }
-      return arr;
-    };
-
-    const encoded = encode(frame);
-    const bytes = new Uint8Array(encoded.length + 1);
-    bytes.set(encoded, 0);
-    bytes[encoded.length] = 0x00; // STOMP frame terminator
-
-    (this.ws as any).send(bytes.buffer);
+    // Send STOMP frames as text. Some gateways/STOMP endpoints reject binary
+    // websocket messages and close the socket with a protocol error.
+    this.ws.send(`${frame}\0`);
     debugLog('SEND FRAME', { command, headers, body });
   }
 
