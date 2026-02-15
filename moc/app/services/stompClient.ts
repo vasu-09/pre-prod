@@ -40,6 +40,7 @@ type SubscriptionEntry = {
 
 const HEARTBEAT = '10000,10000';
 const HEARTBEAT_INTERVAL_MS = 10000;
+const DEFAULT_STOMP_HOST = process.env.EXPO_PUBLIC_STOMP_HOST?.trim() || '/';
 
 class SimpleStompClient {
   private url: string;
@@ -98,16 +99,10 @@ class SimpleStompClient {
           const connectHeaders: Record<string, string> = {
             'accept-version': '1.2',
             'heart-beat': HEARTBEAT,
+            host: DEFAULT_STOMP_HOST,
           };
 
-          try {
-            const parsed = new URL(wsUrl);
-            if (parsed.host) {
-              connectHeaders.host = parsed.host;
-            }
-          } catch {
-            connectHeaders.host = connectHeaders.host ?? 'localhost';
-          }
+          
           
 
           const tokenPreview = this.token ? `${this.token.slice(0, 10)}...` : null;
