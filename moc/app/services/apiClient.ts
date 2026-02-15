@@ -483,7 +483,7 @@ type RetriableRequestConfig = InternalAxiosRequestConfig & {
 
 let refreshPromise: Promise<string | null> | null = null;
 
-const refreshAccessToken = async (): Promise<string | null> => {
+export const refreshAccessToken = async (): Promise<string | null> => {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const refreshToken = await getRefreshToken();

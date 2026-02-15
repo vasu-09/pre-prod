@@ -6,7 +6,7 @@
 
 import { Platform } from 'react-native';
 
-import { buildWsUrl } from './apiClient';
+import { buildWsUrl, refreshAccessToken } from './apiClient';
 import { getAccessToken } from './authStorage';
 
 const wsDebugEnabled =
@@ -61,6 +61,21 @@ class SimpleStompClient {
     this.token = token;
   }
 
+  private buildAuthenticatedWsUrl() {
+    if (!this.token) {
+      return this.url;
+    }
+
+    try {
+      const parsed = new URL(this.url);
+      parsed.searchParams.set('access_token', this.token);
+      return parsed.toString();
+    } catch {
+      const joiner = this.url.includes('?') ? '&' : '?';
+      return `${this.url}${joiner}access_token=${encodeURIComponent(this.token)}`;
+    }
+  }
+
   private resolveStompHost(wsUrl: string) {
     if (DEFAULT_STOMP_HOST) {
       return DEFAULT_STOMP_HOST;
@@ -91,10 +106,7 @@ class SimpleStompClient {
 
       try {
         // RN WebSocket constructor accepts headers as third argument (not web).
-       const wsUrl =
-          Platform.OS === 'web' && this.token
-            ? `${this.url}?access_token=${encodeURIComponent(this.token)}`
-            : this.url;
+        const wsUrl = this.buildAuthenticatedWsUrl();
 
         const protocols = ['v12.stomp'];
         const socket: WebSocket =
@@ -428,6 +440,7 @@ class StompManager {
         return;
       }
       try {
+        await refreshAccessToken();
         await this.initClient();
       } catch (err) {
         console.warn('STOMP reconnect failed', err);
