@@ -62,15 +62,10 @@ class SimpleStompClient {
   }
 
   private resolveStompHost() {
-    if (DEFAULT_STOMP_HOST && DEFAULT_STOMP_HOST !== '/') {
+    if (DEFAULT_STOMP_HOST) {
       return DEFAULT_STOMP_HOST;
     }
-
-    try {
-      return new URL(this.url).host || '/';
-    } catch {
-      return '/';
-    }
+    return '/';
   }
 
   isConnected() {
