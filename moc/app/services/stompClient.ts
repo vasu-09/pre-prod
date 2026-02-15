@@ -61,11 +61,15 @@ class SimpleStompClient {
     this.token = token;
   }
 
-  private resolveStompHost() {
+  private resolveStompHost(wsUrl: string) {
     if (DEFAULT_STOMP_HOST) {
       return DEFAULT_STOMP_HOST;
     }
-    return '/';
+    try {
+      return new URL(wsUrl).host;
+    } catch {
+      return 'api-preprod.mocconnect.in';
+    }
   }
 
   isConnected() {
@@ -87,9 +91,10 @@ class SimpleStompClient {
 
       try {
         // RN WebSocket constructor accepts headers as third argument (not web).
-        const wsUrl = this.token
-          ? `${this.url}?access_token=${encodeURIComponent(this.token)}`
-          : this.url;
+       const wsUrl =
+          Platform.OS === 'web' && this.token
+            ? `${this.url}?access_token=${encodeURIComponent(this.token)}`
+            : this.url;
 
         const protocols = ['v12.stomp'];
         const socket: WebSocket =
@@ -106,11 +111,8 @@ class SimpleStompClient {
           const connectHeaders: Record<string, string> = {
             'accept-version': '1.2',
             'heart-beat': HEARTBEAT,
-            host: this.resolveStompHost(),
+            host: this.resolveStompHost(wsUrl),
           };
-
-          
-          
 
           const tokenPreview = this.token ? `${this.token.slice(0, 10)}...` : null;
           debugLog('STOMP CONNECT outbound', {
@@ -143,7 +145,11 @@ class SimpleStompClient {
           }
           this.resolveConnect = undefined;
           this.rejectConnect = undefined;
-          debugLog('WebSocket closed');
+          debugLog('WebSocket closed', {
+            code: event?.code,
+            reason: event?.reason,
+            wasClean: event?.wasClean,
+          });
           if (this.onDisconnect) {
             this.onDisconnect();
           }
