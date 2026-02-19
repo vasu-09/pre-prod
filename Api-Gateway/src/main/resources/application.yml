@@ -33,7 +33,7 @@ spring:
             - Path=/api/search/**,/api/blocks/**,/api/calls/**,/api/dm/**,/api/e2ee/**,/api/media/**,/api/message/**,/api/messages/**,/api/readmodel/**,/api/rooms/**
 
         - id: rtc-ws
-          uri: http://rtc-service.moc-preprod.svc.cluster.local:80  # or ws://192.168.31.6:8091
+          uri: ws://rtc-service.moc-preprod.svc.cluster.local:80 # or ws://192.168.31.6:8091
           predicates:
             - Path=/ws,/ws/**,/rtc/**
 
