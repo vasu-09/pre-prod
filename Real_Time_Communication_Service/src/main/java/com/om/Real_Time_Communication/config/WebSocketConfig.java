@@ -46,8 +46,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         this.pendingMessages = pendingMessages;
     }
 
-    @Value("${cors.allowed-origins:*}")
-    private String[] allowedOrigins;
+    @Value("#{'${cors.allowed-origin-patterns:*}'.split(',')}")
+    private String[] allowedOriginPatterns;
     @Value("${rtc.rabbit.stomp.relay.host:}")
     private String relayHost;
     @Value("${rtc.rabbit.stomp.relay.port:61613}")
@@ -80,7 +80,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                         return super.determineUser(request, wsHandler, attributes);
                     }
                 })
-                .setAllowedOrigins(allowedOrigins)            // tighten in prod
+                .setAllowedOriginPatterns(allowedOriginPatterns)            // tighten in prod
                 .addInterceptors(jwtHandshakeInterceptor);
     }
 

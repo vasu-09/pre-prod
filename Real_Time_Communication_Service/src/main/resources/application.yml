@@ -87,13 +87,14 @@ media:
 GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:/path/to/moc-service-account.json}
 
 jwt:
-  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}
-  jwks-uri: ${JWT_JWKS_URI:http://auth-service.moc-preprod.svc.cluster.local:8092/.well-known/jwks.json}
+  issuer: ${JWT_ISSUER:https://api-preprod.mocconnect.in/}
+  jwks-uri: ${JWT_JWKS_URI:http://auth-service.moc-preprod.svc.cluster.local:80/.well-known/jwks.json}
   audience: ${JWT_AUDIENCE:}
 
 # Keep this custom and read it in a @ConfigurationProperties or @Value
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://*.mocconnect.in,https://api-preprod.mocconnect.in}
+  allowed-origin-patterns: ${CORS_ALLOWED_ORIGIN_PATTERNS:https://*.mocconnect.in,http://localhost:*}
 
 rtc:
   rabbit:
