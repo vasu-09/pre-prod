@@ -1,7 +1,6 @@
 package com.om.Real_Time_Communication.config;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -10,7 +9,6 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 /** Caps inbound payload size and applies simple sliding-window rate limits. */
 @Component
@@ -18,8 +16,7 @@ import java.util.List;
 public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
     private static final int MAX_PAYLOAD_BYTES = 64 * 1024; // 64KB cap
 
-    @Autowired
-    private  SlidingWindowRateLimiter limiter;
+    private final SlidingWindowRateLimiter limiter;
 
     @Override
     public Message<?> preSend(Message<?> msg, MessageChannel ch) {
@@ -40,8 +37,11 @@ public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
         StompCommand cmd = acc.getCommand();
 
         if (StompCommand.CONNECT.equals(cmd)) {
-            // 10 CONNECTs / 10s per IP (if your gateway forwards X-Forwarded-For)
-            limiter.checkOrThrow("ip:" + headerFirst(acc, "X-Forwarded-For") + ":connect", 10, 10_000);
+            // Prefer per-user throttling to avoid collapsing all clients into a shared bucket.
+            String connectScope = "anon".equals(user)
+                    ? "ip:" + resolveClientIp(acc)
+                    : "u:" + user;
+            limiter.checkOrThrow(connectScope + ":connect", 50, 10_000);
         } else if (StompCommand.SUBSCRIBE.equals(cmd)) {
             // 10 joins / 10s per user
             limiter.checkOrThrow("u:" + user + ":joins", 10, 10_000);
@@ -55,10 +55,12 @@ public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
         return msg;
     }
 
-    private static String headerFirst(StompHeaderAccessor acc, String name) {
-        List<String> v = acc.getNativeHeader(name);
-        return (v == null || v.isEmpty()) ? null : v.get(0);
+    private static String resolveClientIp(StompHeaderAccessor acc) {
+        if (acc.getSessionAttributes() == null) return "unknown";
+        Object clientIp = acc.getSessionAttributes().get("clientIp");
+        return clientIp == null ? "unknown" : clientIp.toString();
     }
+    
     private static String parseRoomId(String dest) {
         if (dest == null) return "-1";
         String prefix = "/app/rooms/";
