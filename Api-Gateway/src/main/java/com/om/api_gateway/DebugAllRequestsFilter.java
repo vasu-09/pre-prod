@@ -1,3 +1,4 @@
+
 package com.om.api_gateway;
 
 import org.slf4j.Logger;
@@ -17,7 +18,7 @@ public class DebugAllRequestsFilter implements GlobalFilter, Ordered {
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         var req = exchange.getRequest();
-        log.info("[DEBUG-FILTER] {} {}", req.getMethod(), req.getURI());
+        log.info("[DEBUG-FILTER] {} {}", req.getMethod(), req.getPath().value());
         return chain.filter(exchange);
     }
 

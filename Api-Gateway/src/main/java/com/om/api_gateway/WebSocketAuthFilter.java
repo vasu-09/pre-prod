@@ -6,9 +6,11 @@ import org.springframework.core.Ordered;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -52,8 +54,7 @@ public class WebSocketAuthFilter implements GlobalFilter, Ordered {
                     }
                 }
             }
-            log.info("[GATEWAY][WS-FILTER] Sec-WebSocket-Protocol raw="
-                    + request.getHeaders().getFirst(WS_PROTOCOL_HEADER));
+            log.info("[GATEWAY][WS-FILTER] Sec-WebSocket-Protocol present={}", !protocols.isEmpty());
         }
 
 
@@ -63,22 +64,19 @@ public class WebSocketAuthFilter implements GlobalFilter, Ordered {
             tokenSource = "Authorization header";
             token = token.substring(7).trim();
         }
-        boolean foundTokenInProtocol = false;
         if (inspectWsProtocols) {
             for (int i = 0; i < protocols.size(); i++) {
                 String p = protocols.get(i);
                 if (p.regionMatches(true, 0, "bearer ", 0, 7)) {
                     tokenSource = "Sec-WebSocket-Protocol (single)";
                     token = p.substring(7).trim();
-                    foundTokenInProtocol = true;
-                    log.info("[GATEWAY][WS-FILTER] Found bearer token in subprotocol (single): " + token);
+                    log.info("[GATEWAY][WS-FILTER] Found bearer token in subprotocol (single)");
                     continue; // drop token from forwarded subprotocols
                 }
                 if (p.equalsIgnoreCase("bearer") && i + 1 < protocols.size()) {
                     tokenSource = "Sec-WebSocket-Protocol (pair)";
                     token = protocols.get(++i);
-                    foundTokenInProtocol = true;
-                    log.info("[GATEWAY][WS-FILTER] Found bearer token in subprotocol (pair): " + token);
+                    log.info("[GATEWAY][WS-FILTER] Found bearer token in subprotocol (pair)");
                     continue;
                 }
                 sanitizedProtocols.add(p);
@@ -100,7 +98,16 @@ public class WebSocketAuthFilter implements GlobalFilter, Ordered {
             }
         }
 
-        ServerHttpRequest.Builder mutated = request.mutate();
+        URI sanitizedUri = request.getURI();
+        if (token != null && !token.isBlank()) {
+            sanitizedUri = UriComponentsBuilder.fromUri(sanitizedUri)
+                    .replaceQueryParam("access_token")
+                    .replaceQueryParam("token")
+                    .build(true)
+                    .toUri();
+        }
+
+        ServerHttpRequest.Builder mutated = request.mutate().uri(sanitizedUri);
         if (token != null) {
             token = token.trim();
         }
@@ -129,7 +136,7 @@ public class WebSocketAuthFilter implements GlobalFilter, Ordered {
 
     @Override
     public int getOrder() {
-        // run before JwtAuthFilter (-1) so that the Authorization header is available
-        return -3;
+        // run before other gateway filters and websocket routing
+        return -200;
     }
 }
