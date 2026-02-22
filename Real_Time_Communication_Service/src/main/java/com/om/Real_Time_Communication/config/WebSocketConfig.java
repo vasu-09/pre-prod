@@ -3,9 +3,11 @@ package com.om.Real_Time_Communication.config;
 import com.om.Real_Time_Communication.security.SessionRegistry;
 import com.om.Real_Time_Communication.service.PendingMessageService;
 import org.springframework.http.server.ServerHttpRequest;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.scheduling.TaskScheduler;
@@ -25,6 +27,7 @@ import java.util.Map;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    private final TaskScheduler messageBrokerTaskScheduler;
     private final StompLoggingInterceptor stompLoggingInterceptor;
     private final JwtHandshakeInterceptor jwtHandshakeInterceptor;
     private final StompSecurityInterceptor stompSecurityInterceptor;
@@ -33,13 +36,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final SessionRegistry sessionRegistry;
     private final PendingMessageService pendingMessages;
 
-    public WebSocketConfig(JwtHandshakeInterceptor jwtHandshakeInterceptor,
+    public WebSocketConfig(@Qualifier("messageBrokerTaskScheduler") TaskScheduler messageBrokerTaskScheduler,
+                           JwtHandshakeInterceptor jwtHandshakeInterceptor,
                            StompSecurityInterceptor stompSecurityInterceptor,
                            StompLoggingInterceptor stompLoggingInterceptor,
                            InboundSizeAndRateInterceptor inboundSizeAndRateInterceptor,
                            OutboundFloodGuardInterceptor outboundFloodGuardInterceptor,
                            SessionRegistry sessionRegistry,
                            @Lazy PendingMessageService pendingMessages) {
+        this.messageBrokerTaskScheduler = messageBrokerTaskScheduler;
         this.jwtHandshakeInterceptor = jwtHandshakeInterceptor;
         this.stompSecurityInterceptor = stompSecurityInterceptor;
         this.stompLoggingInterceptor = stompLoggingInterceptor;
@@ -64,11 +69,22 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Value("${rtc.rabbit.stomp.system-passcode:}")
     private String relaySystemPasscode;
 
-    @Bean(name = "stompBrokerRelayTaskScheduler")
-    public TaskScheduler stompBrokerRelayTaskScheduler() {
+    @Bean(name = "messageBrokerTaskScheduler")
+    public TaskScheduler messageBrokerTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(4);
+        scheduler.setThreadNamePrefix("ws-broker-");
+        scheduler.setDaemon(true);
+        scheduler.initialize();
+        return scheduler;
+    }
+
+    @Bean(name = "taskScheduler")
+    @Primary
+    public TaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(2);
-        scheduler.setThreadNamePrefix("stomp-relay-");
+        scheduler.setThreadNamePrefix("app-sched-");
         scheduler.initialize();
         return scheduler;
     }
@@ -150,7 +166,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setSystemLogin(relaySystemLogin)
                 .setSystemPasscode(relaySystemPasscode);
 
-        relay.setTaskScheduler(stompBrokerRelayTaskScheduler());
+        relay.setTaskScheduler(messageBrokerTaskScheduler);
         relay.setSystemHeartbeatSendInterval(10000);
         relay.setSystemHeartbeatReceiveInterval(10000);
 
