@@ -64,11 +64,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Value("${rtc.rabbit.stomp.system-passcode:}")
     private String relaySystemPasscode;
 
-    @Bean
-    public TaskScheduler stompTaskScheduler() {
+    @Bean(name = "stompBrokerRelayTaskScheduler")
+    public TaskScheduler stompBrokerRelayTaskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(1);
-        scheduler.setThreadNamePrefix("stomp-heartbeat-");
+        scheduler.setPoolSize(2);
+        scheduler.setThreadNamePrefix("stomp-relay-");
         scheduler.initialize();
         return scheduler;
     }
@@ -150,7 +150,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setSystemLogin(relaySystemLogin)
                 .setSystemPasscode(relaySystemPasscode);
 
-        relay.setTaskScheduler(stompTaskScheduler());
+        relay.setTaskScheduler(stompBrokerRelayTaskScheduler());
         relay.setSystemHeartbeatSendInterval(10000);
         relay.setSystemHeartbeatReceiveInterval(10000);
 
