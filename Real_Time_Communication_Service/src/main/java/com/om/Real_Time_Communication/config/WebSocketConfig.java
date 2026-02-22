@@ -4,9 +4,12 @@ import com.om.Real_Time_Communication.security.SessionRegistry;
 import com.om.Real_Time_Communication.service.PendingMessageService;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketSession;
@@ -60,6 +63,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private String relaySystemLogin;
     @Value("${rtc.rabbit.stomp.system-passcode:}")
     private String relaySystemPasscode;
+
+    @Bean
+    public TaskScheduler stompTaskScheduler() {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("stomp-heartbeat-");
+        scheduler.initialize();
+        return scheduler;
+    }
     
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
@@ -130,13 +142,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableStompBrokerRelay("/topic", "/queue", "/user") // RabbitMQ STOMP relay
+        var relay = config.enableStompBrokerRelay("/topic", "/queue", "/user") // RabbitMQ STOMP relay
                 .setRelayHost(relayHost)
                 .setRelayPort(relayPort)
                 .setClientLogin(relayClientLogin)
                 .setClientPasscode(relayClientPasscode)
                 .setSystemLogin(relaySystemLogin)
                 .setSystemPasscode(relaySystemPasscode);
+
+        relay.setTaskScheduler(stompTaskScheduler());
+        relay.setSystemHeartbeatSendInterval(10000);
+        relay.setSystemHeartbeatReceiveInterval(10000);
+
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
     }
