@@ -39,8 +39,27 @@ type SubscriptionEntry = {
 };
 
 const HEARTBEAT = '10000,10000';
-const HEARTBEAT_INTERVAL_MS = 10000;
 const DEFAULT_STOMP_HOST = process.env.EXPO_PUBLIC_STOMP_HOST?.trim() || '/';
+const HEARTBEAT_FALLBACK_MS = 10000;
+const HEARTBEAT_WATCHDOG_CHECK_MS = 5000;
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8');
+
+function toArrayBufferExact(u8: Uint8Array): ArrayBuffer {
+  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+}
+
+function encodeBinary(value: string): ArrayBuffer {
+  return toArrayBufferExact(encoder.encode(value));
+}
+
+function appendAccessToken(baseUrl: string, jwt: string) {
+  const hasQuery = baseUrl.includes('?');
+  return hasQuery
+    ? `${baseUrl}&access_token=${encodeURIComponent(jwt)}`
+    : `${baseUrl}?access_token=${encodeURIComponent(jwt)}`;
+}
 
 class SimpleStompClient {
   private url: string;
@@ -52,7 +71,9 @@ class SimpleStompClient {
   private rejectConnect?: (err: unknown) => void;
   private subscriptions = new Map<string, FrameHandler>();
   private subscriptionSeq = 0;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatSendTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatWatchTimer: ReturnType<typeof setInterval> | null = null;
+  private lastInboundAt = Date.now();
   public onDisconnect?: () => void;
   public onConnectCallback?: () => void;
 
@@ -84,17 +105,9 @@ class SimpleStompClient {
     this.connectPromise = new Promise<void>((resolve, reject) => {
       this.resolveConnect = resolve;
       this.rejectConnect = reject;
-      const headers: Record<string, string> = {};
-      if (this.token) {
-        headers['Authorization'] = `Bearer ${this.token}`;
-      }
 
       try {
-        // RN WebSocket constructor accepts headers as third argument (not web).
-        const wsUrl =
-          Platform.OS === 'web' && this.token
-            ? `${this.url}?access_token=${encodeURIComponent(this.token)}`
-            : this.url;
+        const wsUrl = this.token ? appendAccessToken(this.url, this.token) : this.url;
 
         const protocols = ['v12.stomp'];
         const socket: WebSocket =
@@ -103,9 +116,14 @@ class SimpleStompClient {
             : new (WebSocket as unknown as RNWebSocketConstructor)(
                 wsUrl,
                 protocols,
-                { headers },
+                { headers: { Origin: 'https://api-preprod.mocconnect.in' } },
               );
         this.ws = socket;
+        try {
+          this.ws.binaryType = 'arraybuffer';
+        } catch {
+          // ignore
+        }
 
         socket.onopen = () => {
           const connectHeaders: Record<string, string> = {
@@ -172,17 +190,23 @@ class SimpleStompClient {
   }
 
   disconnect() {
+    this.stopHeartbeat();
     if (this.ws) {
       try {
-        this.sendFrame('DISCONNECT', {});
-        this.ws.close();
+        this.sendBinary('DISCONNECT\n\n\x00');
       } catch {
         // ignore
       }
+      setTimeout(() => {
+        try {
+          this.ws?.close(1000, 'bye');
+        } catch {
+          // ignore
+        }
+      }, 150);
     }
     this.connected = false;
     this.connectPromise = null;
-    this.stopHeartbeat();
   }
 
   private async extractText(data: string | ArrayBuffer | Blob): Promise<string> {
@@ -199,6 +223,8 @@ class SimpleStompClient {
   }
 
   private handleRawData(text: string) {
+    this.lastInboundAt = Date.now();
+
     if (!text || text === '\n' || text === '\r\n') {
       return; // heartbeat or empty
     }
@@ -224,11 +250,12 @@ class SimpleStompClient {
       if (frame.command === 'CONNECTED') {
         debugLog('STOMP CONNECTED', frame.headers);
         this.connected = true;
-        this.startHeartbeat();
+        const [outgoingMs, incomingMs] = this.resolveHeartbeatIntervals(frame.headers['heart-beat']);
+        this.startHeartbeat(outgoingMs, incomingMs);
         if (this.resolveConnect) {
           this.resolveConnect();
           this.resolveConnect = undefined;
-          this.rejectConnect = undefined
+          this.rejectConnect = undefined;
         }
         
         if (this.onConnectCallback) {
@@ -259,7 +286,7 @@ class SimpleStompClient {
 
   private decodeBinary(data: ArrayBuffer) {
     try {
-      return new TextDecoder('utf-8').decode(new Uint8Array(data));
+      return decoder.decode(new Uint8Array(data));
     } catch (err) {
       debugLog('Failed to decode binary frame', err);
       return '';
@@ -301,7 +328,15 @@ class SimpleStompClient {
     return { command, headers, body: bodyPart.replace(/\u0000/g, '') };
   }
 
-  private sendFrame(command: string, headers: Record<string, unknown>, body = '') {
+  private sendBinary(value: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket is not open – unable to send STOMP frame');
+    }
+
+    this.ws.send(encodeBinary(value));
+  }
+
+  private sendFrame(command: string, headers: Record<string, string>, body = '') {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not open – unable to send STOMP frame');
     }
@@ -316,37 +351,67 @@ class SimpleStompClient {
     if (body) {
       frame += body;
     }
-     debugLog('RAW OUTBOUND FRAME', JSON.stringify(frame + '\0'));
-
-    // Send STOMP frames as text. Some gateways/STOMP endpoints reject binary
-    // websocket messages and close the socket with a protocol error.
-    this.ws.send(`${frame}\0`);
+    debugLog('RAW OUTBOUND FRAME', JSON.stringify(frame + '\0'));
+    this.sendBinary(`${frame}\0`);
     debugLog('SEND FRAME', { command, headers, body });
   }
 
-  private startHeartbeat() {
-    if (this.heartbeatTimer || !this.ws) {
+  private resolveHeartbeatIntervals(serverHeartBeatHeader?: string): [number, number] {
+    const [clientOut, clientIn] = HEARTBEAT.split(',').map(value => Number(value) || 0);
+    const [serverOut, serverIn] = (serverHeartBeatHeader || '0,0')
+      .split(',')
+      .map(value => Number(value) || 0);
+    const outgoingMs = Math.max(clientOut, serverIn, HEARTBEAT_FALLBACK_MS);
+    const incomingMs = Math.max(clientIn, serverOut, HEARTBEAT_FALLBACK_MS);
+    return [outgoingMs, incomingMs];
+  }
+
+  private startHeartbeat(outMs: number, inMs: number) {
+    if (!this.ws) {
       return;
     }
-    this.heartbeatTimer = setInterval(() => {
+    this.stopHeartbeat();
+
+    const sendEvery = Math.max(1000, outMs - 1000);
+    this.heartbeatSendTimer = setInterval(() => {
       try {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send('\n');
+          this.ws.send(encodeBinary('\n'));
         }
       } catch (err) {
         debugLog('Failed to send heartbeat', err);
       }
-    }, HEARTBEAT_INTERVAL_MS);
+    }, sendEvery);
+
+    const maxSilence = Math.max(30000, inMs * 3);
+    this.heartbeatWatchTimer = setInterval(() => {
+      const silenceDuration = Date.now() - this.lastInboundAt;
+      if (this.connected && silenceDuration > maxSilence) {
+        debugLog('Heartbeat watchdog closing stale socket', {
+          silenceDuration,
+          maxSilence,
+        });
+        try {
+          this.ws?.close();
+        } catch {
+          // ignore
+        }
+      }
+    }, HEARTBEAT_WATCHDOG_CHECK_MS);
   }
 
   private stopHeartbeat() {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
+    if (this.heartbeatSendTimer) {
+      clearInterval(this.heartbeatSendTimer);
+      this.heartbeatSendTimer = null;
+    }
+    if (this.heartbeatWatchTimer) {
+      clearInterval(this.heartbeatWatchTimer);
+      this.heartbeatWatchTimer = null;
     }
   }
 
-  send(destination: string, body: string, headers: Record<string, unknown> = {}) {
+  send(destination: string, body: string, headers: Record<string, string> = {}) {
     this.sendFrame('SEND', { destination, ...headers }, body);
   }
 
@@ -485,9 +550,17 @@ class StompManager {
     const client = await this.ensureConnected();
     const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
     debugLog('publish', { destination, payload, body });
+    const stringHeaders = Object.entries(headers).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (value === undefined || value === null) {
+        return acc;
+      }
+      acc[key] = String(value);
+      return acc;
+    }, {});
+    
     client.send(destination, body, {
       'content-type': 'application/json',
-      ...headers,
+      ...stringHeaders,
     });
   }
 
