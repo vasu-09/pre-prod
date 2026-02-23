@@ -3,7 +3,6 @@ package com.om.Real_Time_Communication.config;
 import com.om.Real_Time_Communication.security.SessionRegistry;
 import com.om.Real_Time_Communication.service.PendingMessageService;
 import org.springframework.http.server.ServerHttpRequest;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,7 +26,6 @@ import java.util.Map;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    private final TaskScheduler brokerTaskScheduler;
     private final StompLoggingInterceptor stompLoggingInterceptor;
     private final JwtHandshakeInterceptor jwtHandshakeInterceptor;
     private final StompSecurityInterceptor stompSecurityInterceptor;
@@ -36,15 +34,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final SessionRegistry sessionRegistry;
     private final PendingMessageService pendingMessages;
 
-    public WebSocketConfig(@Qualifier("brokerTaskScheduler") TaskScheduler brokerTaskScheduler,
-                           JwtHandshakeInterceptor jwtHandshakeInterceptor,
+    public WebSocketConfig(JwtHandshakeInterceptor jwtHandshakeInterceptor,
                            StompSecurityInterceptor stompSecurityInterceptor,
                            StompLoggingInterceptor stompLoggingInterceptor,
                            InboundSizeAndRateInterceptor inboundSizeAndRateInterceptor,
                            OutboundFloodGuardInterceptor outboundFloodGuardInterceptor,
                            SessionRegistry sessionRegistry,
                            @Lazy PendingMessageService pendingMessages) {
-        this.brokerTaskScheduler = brokerTaskScheduler;
         this.jwtHandshakeInterceptor = jwtHandshakeInterceptor;
         this.stompSecurityInterceptor = stompSecurityInterceptor;
         this.stompLoggingInterceptor = stompLoggingInterceptor;
