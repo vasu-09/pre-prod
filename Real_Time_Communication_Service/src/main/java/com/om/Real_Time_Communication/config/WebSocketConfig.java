@@ -27,7 +27,7 @@ import java.util.Map;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
-    private final TaskScheduler messageBrokerTaskScheduler;
+    private final TaskScheduler brokerTaskScheduler;
     private final StompLoggingInterceptor stompLoggingInterceptor;
     private final JwtHandshakeInterceptor jwtHandshakeInterceptor;
     private final StompSecurityInterceptor stompSecurityInterceptor;
@@ -36,7 +36,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final SessionRegistry sessionRegistry;
     private final PendingMessageService pendingMessages;
 
-    public WebSocketConfig(@Qualifier("messageBrokerTaskScheduler") TaskScheduler messageBrokerTaskScheduler,
+    public WebSocketConfig(@Qualifier("brokerTaskScheduler") TaskScheduler brokerTaskScheduler,
                            JwtHandshakeInterceptor jwtHandshakeInterceptor,
                            StompSecurityInterceptor stompSecurityInterceptor,
                            StompLoggingInterceptor stompLoggingInterceptor,
@@ -44,7 +44,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                            OutboundFloodGuardInterceptor outboundFloodGuardInterceptor,
                            SessionRegistry sessionRegistry,
                            @Lazy PendingMessageService pendingMessages) {
-        this.messageBrokerTaskScheduler = messageBrokerTaskScheduler;
+        this.brokerTaskScheduler = brokerTaskScheduler;
         this.jwtHandshakeInterceptor = jwtHandshakeInterceptor;
         this.stompSecurityInterceptor = stompSecurityInterceptor;
         this.stompLoggingInterceptor = stompLoggingInterceptor;
@@ -69,8 +69,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     @Value("${rtc.rabbit.stomp.system-passcode:}")
     private String relaySystemPasscode;
 
-    @Bean(name = "messageBrokerTaskScheduler")
-    public TaskScheduler messageBrokerTaskScheduler() {
+    @Bean(name = "brokerTaskScheduler")
+    public TaskScheduler brokerTaskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         scheduler.setPoolSize(4);
         scheduler.setThreadNamePrefix("ws-broker-");
@@ -166,7 +166,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                 .setSystemLogin(relaySystemLogin)
                 .setSystemPasscode(relaySystemPasscode);
 
-        relay.setTaskScheduler(messageBrokerTaskScheduler);
+        relay.setTaskScheduler(brokerTaskScheduler());
         relay.setSystemHeartbeatSendInterval(10000);
         relay.setSystemHeartbeatReceiveInterval(10000);
 
