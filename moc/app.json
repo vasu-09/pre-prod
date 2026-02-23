@@ -52,9 +52,7 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-web-browser",
       "expo-asset",
-      "expo-sqlite",
       "expo-audio"
     ],
     "experiments": {

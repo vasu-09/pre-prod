@@ -9,6 +9,8 @@ import { Platform } from 'react-native';
 import { buildWsUrl } from './apiClient';
 import { getAccessToken } from './authStorage';
 
+const IS_NATIVE = Platform.OS !== 'web';
+
 const wsDebugEnabled =
   process.env.EXPO_PUBLIC_WS_DEBUG === 'true' || (typeof __DEV__ !== 'undefined' && __DEV__);
 
@@ -46,19 +48,9 @@ const HEARTBEAT_WATCHDOG_CHECK_MS = 5000;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8');
 
-function toArrayBufferExact(u8: Uint8Array): ArrayBuffer {
+function toArrayBuffer(value: string): ArrayBuffer {
+  const u8 = encoder.encode(value);
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
-}
-
-function encodeBinary(value: string): ArrayBuffer {
-  return toArrayBufferExact(encoder.encode(value));
-}
-
-function appendAccessToken(baseUrl: string, jwt: string) {
-  const hasQuery = baseUrl.includes('?');
-  return hasQuery
-    ? `${baseUrl}&access_token=${encodeURIComponent(jwt)}`
-    : `${baseUrl}?access_token=${encodeURIComponent(jwt)}`;
 }
 
 class SimpleStompClient {
@@ -80,6 +72,14 @@ class SimpleStompClient {
   constructor(url: string, token?: string | null) {
     this.url = url;
     this.token = token;
+  }
+
+  private buildWsUrl(base: string, token?: string | null) {
+    if (!token) {
+      return base;
+    }
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}access_token=${encodeURIComponent(token)}`;
   }
 
   private resolveStompHost(wsUrl: string) {
@@ -107,17 +107,14 @@ class SimpleStompClient {
       this.rejectConnect = reject;
 
       try {
-        const wsUrl = this.token ? appendAccessToken(this.url, this.token) : this.url;
-
+        const wsUrl = this.buildWsUrl(this.url, this.token);
         const protocols = ['v12.stomp'];
-        const socket: WebSocket =
-          Platform.OS === 'web'
-            ? new WebSocket(wsUrl, protocols)
-            : new (WebSocket as unknown as RNWebSocketConstructor)(
-                wsUrl,
-                protocols,
-                { headers: { Origin: 'https://api-preprod.mocconnect.in' } },
-              );
+        const options = IS_NATIVE
+          ? ({ headers: { Origin: 'https://api-preprod.mocconnect.in' } } as const)
+          : undefined;
+        const socket: WebSocket = IS_NATIVE
+          ? new (WebSocket as unknown as RNWebSocketConstructor)(wsUrl, protocols, options)
+          : new WebSocket(wsUrl, protocols);
         this.ws = socket;
         try {
           this.ws.binaryType = 'arraybuffer';
@@ -193,7 +190,7 @@ class SimpleStompClient {
     this.stopHeartbeat();
     if (this.ws) {
       try {
-        this.sendBinary('DISCONNECT\n\n\x00');
+        this.sendPayload('DISCONNECT\n\n\x00');
       } catch {
         // ignore
       }
@@ -328,17 +325,20 @@ class SimpleStompClient {
     return { command, headers, body: bodyPart.replace(/\u0000/g, '') };
   }
 
-  private sendBinary(value: string) {
+  private sendPayload(value: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket is not open – unable to send STOMP frame');
+      throw new Error('WebSocket is not open - unable to send STOMP frame');
     }
-
-    this.ws.send(encodeBinary(value));
+    if (IS_NATIVE) {
+      this.ws.send(toArrayBuffer(value));
+    } else {
+      this.ws.send(value);
+    }
   }
 
   private sendFrame(command: string, headers: Record<string, string>, body = '') {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('WebSocket is not open – unable to send STOMP frame');
+      throw new Error('WebSocket is not open - unable to send STOMP frame');
     }
     let frame = `${command}\n`;
     Object.entries(headers).forEach(([key, value]) => {
@@ -352,7 +352,7 @@ class SimpleStompClient {
       frame += body;
     }
     debugLog('RAW OUTBOUND FRAME', JSON.stringify(frame + '\0'));
-    this.sendBinary(`${frame}\0`);
+    this.sendPayload(`${frame}\0`);
     debugLog('SEND FRAME', { command, headers, body });
   }
 
@@ -376,7 +376,7 @@ class SimpleStompClient {
     this.heartbeatSendTimer = setInterval(() => {
       try {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(encodeBinary('\n'));
+          this.sendPayload('\n');
         }
       } catch (err) {
         debugLog('Failed to send heartbeat', err);
@@ -606,3 +606,5 @@ class StompManager {
 const stompManager = new StompManager();
 
 export default stompManager;
+
+

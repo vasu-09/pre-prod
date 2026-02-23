@@ -8,8 +8,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.server.ServerHttpRequest;
 import org.springframework.http.server.ServerHttpResponse;
-import org.springframework.http.server.ServletServerHttpRequest;
 import org.springframework.lang.NonNull;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
@@ -20,7 +21,6 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import jakarta.servlet.http.HttpServletRequest;
 import java.net.InetSocketAddress;
 import java.security.Principal;
 import java.util.*;
@@ -144,13 +144,17 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
         }
 
         // 3) Query: ?access_token=... or ?token=...
-        if (req instanceof ServletServerHttpRequest sreq) {
-            HttpServletRequest httpReq = sreq.getServletRequest();
-            String t = Optional.ofNullable(httpReq.getParameter("access_token"))
-                    .orElse(httpReq.getParameter("token"));
-            if (t != null && !t.isBlank()) {
-                return t.trim();
-            }
+        MultiValueMap<String, String> queryParams = UriComponentsBuilder
+                .fromUri(req.getURI())
+                .build()
+                .getQueryParams();
+        String accessToken = queryParams.getFirst("access_token");
+        if (accessToken != null && !accessToken.isBlank()) {
+            return accessToken.trim();
+        }
+        String token = queryParams.getFirst("token");
+        if (token != null && !token.isBlank()) {
+            return token.trim();
         }
         return null;
     }

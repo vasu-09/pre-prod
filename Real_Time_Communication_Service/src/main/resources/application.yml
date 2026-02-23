@@ -104,7 +104,7 @@ rtc:
       relay-port: ${RTC_RABBIT_STOMP_RELAY_PORT:61613}
       client-login: ${RTC_RABBIT_STOMP_CLIENT_LOGIN:guest}
       client-passcode: ${RTC_RABBIT_STOMP_CLIENT_PASSCODE:guest}
-      system-login: ${RTC_RABBIT_STOMP_SYSYEM_LOGIN:guest}
+      system-login: ${RTC_RABBIT_STOMP_SYSTEM_LOGIN:guest}
       system-passcode: ${RTC_RABBIT_STOMP_SYSTEM_PASSCODE:guest}
   redis:
     enabled: false

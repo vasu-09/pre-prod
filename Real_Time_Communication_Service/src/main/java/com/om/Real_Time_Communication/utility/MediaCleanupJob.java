@@ -29,10 +29,12 @@ public class MediaCleanupJob {
 
     @Scheduled(cron = "0 0 * * * *") // hourly
     public void purge() {
-        Instant cutoff = Instant.now().minusSeconds(staleSeconds);
-        long removed = repo.deleteByStatusAndCreatedAtBefore("CREATED", cutoff);
-        if (removed > 0) {
-            log.info("Removed {} stale media uploads", removed);
+        try {
+            Instant cutoff = Instant.now().minusSeconds(staleSeconds);
+            long removed = repo.deleteByStatusAndCreatedAtBefore("CREATED", cutoff);
+            log.info("Media cleanup deleted={}", removed);
+        } catch (Exception e) {
+            log.error("Media cleanup failed", e);
         }
     }
 }
