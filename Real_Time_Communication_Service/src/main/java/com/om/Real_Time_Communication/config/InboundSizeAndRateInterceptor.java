@@ -1,6 +1,8 @@
 package com.om.Real_Time_Communication.config;
 
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompCommand;
@@ -14,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 @Component
 @RequiredArgsConstructor
 public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
+    private static final Logger log = LoggerFactory.getLogger(InboundSizeAndRateInterceptor.class);
     private static final int MAX_PAYLOAD_BYTES = 64 * 1024; // 64KB cap
 
     private final SlidingWindowRateLimiter limiter;
@@ -43,8 +46,15 @@ public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
                     : "u:" + user;
             limiter.checkOrThrow(connectScope + ":connect", 50, 10_000);
         } else if (StompCommand.SUBSCRIBE.equals(cmd)) {
-            // 10 joins / 10s per user
-            limiter.checkOrThrow("u:" + user + ":joins", 10, 10_000);
+             // Allow startup/navigation bursts; scope per session to avoid reconnect penalties.
+            String sid = acc.getSessionId() != null ? acc.getSessionId() : "nosid";
+            try {
+                limiter.checkOrThrow("u:" + user + ":sid:" + sid + ":joins", 50, 10_000);
+            } catch (IllegalArgumentException e) {
+                log.warn("[WS-RATE] user={} sid={} cmd=SUBSCRIBE dest={} err={}",
+                        user, sid, acc.getDestination(), e.getMessage());
+                throw e;
+            }
         } else if (StompCommand.SEND.equals(cmd)) {
             // 50 msgs / 5s per (user, room) + 200 msgs / 5s global per user
             String dest = acc.getDestination();        // e.g., /app/room/123/send

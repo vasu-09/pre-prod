@@ -64,8 +64,11 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
         // MDC/correlation as you already added…
         try {
             Long userId = extractUserId(acc);
-
-            switch (cmd) {
+            String destination = acc.getDestination();
+            String sessionId = acc.getSessionId();
+            
+            try {
+                switch (cmd) {
                case CONNECT: {
                     // If the WebSocket handshake did not attach a Principal (e.g. token missing from headers),
                     // fall back to validating the STOMP CONNECT headers.
@@ -164,6 +167,11 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
                     break;
                 }
                 default: /* no-op */
+                }
+            } catch (Exception e) {
+                log.error("STOMP security preSend failed: cmd={} session={} user={} dest={} err={}",
+                        cmd, sessionId, userId, destination, e.getMessage(), e);
+                throw e;
             }
             return message;
         } finally {
@@ -298,4 +306,3 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
         static boolean canPublish(Long userId, String roomId) { return true; }
     }
 }
-
