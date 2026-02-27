@@ -116,9 +116,13 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
                 }
                 case SUBSCRIBE: {
                     requireUser(acc); // throws if null
-                    String dest = acc.getDestination(); // /topic/room/{roomId}
-                    if (dest != null && dest.startsWith("/topic/room/")) {
-                        String roomKey = dest.substring("/topic/room/".length()).split("/")[0];
+                    String dest = acc.getDestination();
+                    if (isInvalidRelayTopic(dest)) {
+                        throw new IllegalArgumentException("Use dot-style topic names for RabbitMQ relay: /topic/room.<id> or /topic/call.room.<id>");
+                    }
+
+                    String roomKey = extractRoomKey(dest);
+                    if (roomKey != null) {
                         Long roomId = resolveRoomId(roomKey);
 
                         // 1) Room ACL (Redis-backed)
@@ -145,8 +149,7 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
                     // Accept both the legacy broker prefix (/topic/room/{roomKey}) and the
                     // newer application prefix so ACL checks still run and errors are surfaced
                     // instead of silently dropping the frame.
-                    String roomKey = null;
-                    roomKey = extractRoomKey(dest);
+                    String roomKey = extractRoomKey(dest);
 
                     if (roomKey != null) {
                         Long roomId = resolveRoomId(roomKey);
@@ -278,11 +281,35 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
             return end > 0 ? remainder.substring(0, end) : remainder;
         }
 
+        iif (dest.startsWith("/topic/room.")) {
+            String remainder = dest.substring("/topic/room.".length());
+            int end = findSeparator(remainder);
+            return end > 0 ? remainder.substring(0, end) : remainder;
+        }
+
         if (dest.startsWith("/topic/room/")) {
             return dest.substring("/topic/room/".length()).split("/")[0];
         }
 
+        if (dest.startsWith("/topic/call.room.")) {
+            String remainder = dest.substring("/topic/call.room.".length());
+            int end = findSeparator(remainder);
+            return end > 0 ? remainder.substring(0, end) : remainder;
+        }
+
+        if (dest.startsWith("/topic/call.room/")) {
+            return dest.substring("/topic/call.room/".length()).split("/")[0];
+        }
+
         return null;
+    }
+
+    private static boolean isInvalidRelayTopic(String dest) {
+        return dest != null && (
+                dest.startsWith("/topic/room/")
+                        || dest.startsWith("/topic/call.room/")
+                        || dest.startsWith("/topic/call/")
+        );
     }
 
     private static int findSeparator(String value) {

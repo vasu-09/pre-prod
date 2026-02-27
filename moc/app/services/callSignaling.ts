@@ -105,7 +105,7 @@ const callSignaling = {
     if (!roomId) {
       return noop;
     }
-    return stompClient.subscribe(`/topic/call.room/${roomId}`, frame => {
+    return stompClient.subscribe(`/topic/call.room.${roomId}`, frame => {
       const payload = parseFrame(frame);
       if (payload) {
         if (Array.isArray(payload.callees)) {
@@ -119,7 +119,7 @@ const callSignaling = {
     if (!callId) {
       return noop;
     }
-    return stompClient.subscribe(`/topic/call/${callId}`, frame => {
+    return stompClient.subscribe(`/topic/call.${callId}`, frame => {
       const payload = parseFrame(frame);
       if (payload) {
         callback(payload);

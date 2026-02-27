@@ -49,16 +49,13 @@ public class ChatMessage {
     @Column(name = "algo", length = 16)
     private String algo;                   // "AES-GCM", etc.
 
-    @Lob
-    @Column(name = "aad")
+    @Column(name = "aad", columnDefinition = "bytea")
     private byte[] aad;                    // associated data (optional)
 
-    @Lob
-    @Column(name = "iv")
+    @Column(name = "iv", columnDefinition = "bytea")
     private byte[] iv;                     // nonce/iv
 
-    @Lob
-    @Column(name = "ciphertext", columnDefinition = "BYTEA")
+    @Column(name = "ciphertext", columnDefinition = "bytea")
     private byte[] ciphertext;             // encrypted payload (opaque to server)
 
     @Column(name = "key_ref", length = 64)

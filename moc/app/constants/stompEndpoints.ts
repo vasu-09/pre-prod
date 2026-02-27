@@ -1,6 +1,6 @@
-export const roomTopic = (roomKey: string | number) => `/topic/room/${roomKey}`;
-export const roomTypingTopic = (roomId: string | number) => `/topic/room/${roomId}/typing`;
-export const roomReadTopic = (roomId: string | number) => `/topic/room/${roomId}/reads`;
+export const roomTopic = (roomKey: string | number) => `/topic/room.${roomKey}`;
+export const roomTypingTopic = (roomId: string | number) => `/topic/room.${roomId}.typing`;
+export const roomReadTopic = (roomId: string | number) => `/topic/room.${roomId}.reads`;
 
 export const dmTypingQueue = '/user/queue/typing';
 export const dmReceiptQueue = '/user/queue/receipts';

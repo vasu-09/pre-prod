@@ -98,7 +98,9 @@ public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
 
     private static boolean isRoomTopicSubscription(String destination) {
         return destination != null && (
-                destination.startsWith("/topic/room/")
+                destination.startsWith("/topic/room.")
+                        || destination.startsWith("/topic/room/")
+                        || destination.startsWith("/topic/call.room.")
                         || destination.startsWith("/topic/call.room/")
         );
     }

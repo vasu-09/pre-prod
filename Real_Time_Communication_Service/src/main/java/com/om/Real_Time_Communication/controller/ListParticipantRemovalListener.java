@@ -64,7 +64,7 @@ public class ListParticipantRemovalListener {
         // 4) Broadcast over WebSocket
         ChatMessageDto dto = ChatMessageDto.fromEntity(savedMsg);
         wsTemplate.convertAndSend(
-                "/topic/room/" + dto.getRoomId(),
+                "/topic/room." + dto.getRoomId(),
                 dto
         );
     }

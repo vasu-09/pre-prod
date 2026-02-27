@@ -545,7 +545,7 @@ public class MessageService {
     private void broadcastMessageUpdate(ChatMessage message) {
         String roomKey = resolveRoomKey(message.getRoomId());
         Map<String, Object> event = toRoomEvent(message);
-        messagingTemplate.convertAndSend("/topic/room/" + roomKey, event);
+        messagingTemplate.convertAndSend("/topic/room." + roomKey, event);
     }
 
     private String resolveRoomKey(Long roomId) {

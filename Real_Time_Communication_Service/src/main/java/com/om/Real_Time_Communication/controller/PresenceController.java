@@ -90,7 +90,7 @@ public class PresenceController {
         ev.put("deviceId", deviceId);
         ev.put("online", true);
         ev.put("lastSeen", Instant.now());
-        messaging.convertAndSend("/topic/room/"+roomId+"/presence", ev);
+        messaging.convertAndSend("/topic/room."+roomId+".presence", ev);
         log.info("[RTC][PRESENCE][OK] broadcast presence for user={} room={} deviceId={}", userId, roomId, deviceId);
     }
 
@@ -119,7 +119,7 @@ public class PresenceController {
         }
 
         // Broadcast to room subscribers only
-        messaging.convertAndSend("/topic/room/"+roomId+"/typing", ev);
+        messaging.convertAndSend("/topic/room."+roomId+".typing", ev);
         log.info("[RTC][TYPING][OK] broadcast typing for user={} room={} deviceId={} typing={} ",
                 userId,
                 roomId,

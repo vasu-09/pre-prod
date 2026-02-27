@@ -53,7 +53,7 @@ public class ReadReceiptController {
         ev.put("roomId", roomId);
         ev.put("lastReadMessageId", state.getLastReadMessageId());
         ev.put("lastReadAt", state.getLastReadAt());
-        messaging.convertAndSend("/topic/room/"+roomId+"/reads", ev);
+        messaging.convertAndSend("/topic/room."+roomId+".reads", ev);
         log.info("[RTC][READ][OK] broadcast read receipt for user={} room={} lastReadMessageId={} lastReadAt={}",
                 userId,
                 roomId,
