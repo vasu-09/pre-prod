@@ -46,13 +46,19 @@ public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
                     : "u:" + user;
             limiter.checkOrThrow(connectScope + ":connect", 50, 10_000);
         } else if (StompCommand.SUBSCRIBE.equals(cmd)) {
-             // Allow startup/navigation bursts; scope per session to avoid reconnect penalties.
+            String dest = acc.getDestination();
             String sid = acc.getSessionId() != null ? acc.getSessionId() : "nosid";
             try {
-                limiter.checkOrThrow("u:" + user + ":sid:" + sid + ":joins", 50, 10_000);
+                // Burst protection for any subscribe attempts in this socket session.
+                limiter.checkOrThrow("s:" + sid + ":sub", 50, 10_000);
+
+                // User-specific room subscribe limits should apply only to room-like topics.
+                if (isRoomTopicSubscription(dest)) {
+                    limiter.checkOrThrow("u:" + user + ":room-subs", 50, 10_000);
+                }
             } catch (IllegalArgumentException e) {
                 log.warn("[WS-RATE] user={} sid={} cmd=SUBSCRIBE dest={} err={}",
-                        user, sid, acc.getDestination(), e.getMessage());
+                        user, sid, dest, e.getMessage());
                 throw e;
             }
         } else if (StompCommand.SEND.equals(cmd)) {
@@ -73,13 +79,27 @@ public class InboundSizeAndRateInterceptor implements ChannelInterceptor {
     
     private static String parseRoomId(String dest) {
         if (dest == null) return "-1";
-        String prefix = "/app/rooms/";
-        if (dest.startsWith(prefix)) {
-            int end = dest.indexOf('/', prefix.length());
+        String pluralPrefix = "/app/rooms/";
+        if (dest.startsWith(pluralPrefix)) {
+            int end = dest.indexOf('/', pluralPrefix.length());
             if (end > 0) {
-                return dest.substring(prefix.length(), end);
+                return dest.substring(pluralPrefix.length(), end);
+            }
+        }
+        String singularPrefix = "/app/room/";
+        if (dest.startsWith(singularPrefix)) {
+            int end = dest.indexOf('/', singularPrefix.length());
+            if (end > 0) {
+                return dest.substring(singularPrefix.length(), end);
             }
         }
         return "-1";
+    }
+
+    private static boolean isRoomTopicSubscription(String destination) {
+        return destination != null && (
+                destination.startsWith("/topic/room/")
+                        || destination.startsWith("/topic/call.room/")
+        );
     }
 }

@@ -268,6 +268,10 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
             return dest.substring("/app/rooms/".length()).split("/")[0];
         }
 
+        if (dest.startsWith("/app/room/")) {
+            return dest.substring("/app/room/".length()).split("/")[0];
+        }
+
         if (dest.startsWith("/app/rooms.")) {
             String remainder = dest.substring("/app/rooms.".length());
             int end = findSeparator(remainder);
