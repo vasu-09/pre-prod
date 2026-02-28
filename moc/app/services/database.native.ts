@@ -65,7 +65,7 @@ let localContactCounter = 0;
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 const DB_NAME = 'moc-app.db';
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 6;
 
 type MetaRow = {
   value: string;
@@ -105,6 +105,15 @@ type MessageRow = {
   reply_to_message_id: string | null;
   reply_to_sender_id: number | null;
   reply_to_preview: string | null;
+};
+
+type UserProfileRow = {
+  user_id: number;
+  display_name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  phone_number: string | null;
+  updated_at: string | null;
 };
 
 const runWithWriteLock = async <T>(task: () => Promise<T>): Promise<T> => {
@@ -360,6 +369,19 @@ const migrateToV5 = async (db: SQLite.SQLiteDatabase) => {
   }
 };
 
+const migrateToV6 = async (db: SQLite.SQLiteDatabase) => {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS user_profile (
+      user_id INTEGER PRIMARY KEY,
+      display_name TEXT,
+      email TEXT,
+      avatar_url TEXT,
+      phone_number TEXT,
+      updated_at TEXT
+    );
+  `);
+};
+
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {
   await ensureMetaTable(db);
   let version = await getSchemaVersion(db);
@@ -388,6 +410,10 @@ const runMigrations = async (db: SQLite.SQLiteDatabase) => {
     if (version < 5) {
       await migrateToV5(tx);
       version = 5;
+    }
+    if (version < 6) {
+      await migrateToV6(tx);
+      version = 6;
     }
     await setSchemaVersion(tx, version);
   });
@@ -767,6 +793,15 @@ export type StoredContactInput = {
   updatedAt?: string | null;
 };
 
+export type StoredUserProfileInput = {
+  userId: number;
+  displayName?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+  phoneNumber?: string | null;
+  updatedAt?: string | null;
+};
+
 type ContactRow = {
   id: string;
   name: string;
@@ -1136,4 +1171,44 @@ export const searchContactsInDb = async (query: string): Promise<StoredContactIn
   console.log('[DB_SEARCH] rows found =', rows?.length ?? 0);
 
   return rows?.map(deserializeContactRow) ?? [];
+};
+
+export const upsertUserProfileInDb = async (profile: StoredUserProfileInput): Promise<void> =>
+  runWithWriteLock(async () => {
+    const db = await getDatabase();
+    await db.runAsync(
+      `INSERT INTO user_profile (user_id, display_name, email, avatar_url, phone_number, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         display_name = COALESCE(excluded.display_name, user_profile.display_name),
+         email = COALESCE(excluded.email, user_profile.email),
+         avatar_url = COALESCE(excluded.avatar_url, user_profile.avatar_url),
+         phone_number = COALESCE(excluded.phone_number, user_profile.phone_number),
+         updated_at = COALESCE(excluded.updated_at, user_profile.updated_at)`,
+      [
+        profile.userId,
+        profile.displayName ?? null,
+        profile.email ?? null,
+        profile.avatarUrl ?? null,
+        profile.phoneNumber ?? null,
+        profile.updatedAt ?? new Date().toISOString(),
+      ],
+    );
+  });
+
+export const getUserProfileFromDb = async (userId: number): Promise<StoredUserProfileInput | null> => {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<UserProfileRow>('SELECT * FROM user_profile WHERE user_id = ?', [userId]);
+  if (!row) {
+    return null;
+  }
+
+  return {
+    userId: row.user_id,
+    displayName: row.display_name,
+    email: row.email,
+    avatarUrl: row.avatar_url,
+    phoneNumber: row.phone_number,
+    updatedAt: row.updated_at,
+  };
 };

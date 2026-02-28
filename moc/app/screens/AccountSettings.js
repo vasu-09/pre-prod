@@ -15,6 +15,7 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 
 import apiClient from '../services/apiClient';
 import { getStoredSession } from '../services/authStorage';
+import { getUserProfileFromDb, upsertUserProfileInDb } from '../services/database';
 
 const DEFAULT_PHOTO = 'https://randomuser.me/api/portraits/men/2.jpg';
 
@@ -52,7 +53,8 @@ export default function AccountSettings() {
       }
 
       const userIdValue = session?.userId ? Number(session.userId) : null;
-      setPhoneNumber(session?.username ?? '');
+      const nextPhone = session?.username ?? '';
+      setPhoneNumber(nextPhone);
 
       if (!userIdValue) {
         setName('');
@@ -60,6 +62,13 @@ export default function AccountSettings() {
         setPhotoUri(DEFAULT_PHOTO);
         setError('Unable to load your profile. Please sign in again.');
         return;
+      }
+
+      const cachedProfile = await getUserProfileFromDb(userIdValue);
+      if (isActiveRef.current && cachedProfile) {
+        setName(cachedProfile.displayName ?? '');
+        setEmail(cachedProfile.email ?? '');
+        setPhotoUri(cachedProfile.avatarUrl || DEFAULT_PHOTO);
       }
 
       const { data } = await apiClient.get(`/user/${userIdValue}`);
@@ -72,6 +81,15 @@ export default function AccountSettings() {
       const nextPhoto = typeof data?.avatarUrl === 'string' && data.avatarUrl.length
         ? data.avatarUrl
         : DEFAULT_PHOTO;
+
+        await upsertUserProfileInDb({
+        userId: userIdValue,
+        displayName: nextName,
+        email: nextEmail,
+        avatarUrl: nextPhoto,
+        phoneNumber: nextPhone,
+        updatedAt: new Date().toISOString(),
+      });
 
       setName(nextName);
       setEmail(nextEmail);

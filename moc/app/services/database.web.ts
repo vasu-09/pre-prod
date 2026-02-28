@@ -46,3 +46,9 @@ export const updateMessageDeletionInDb = async () => {};
 export const deleteMessagesFromDb = async () => {};
 
 export const setConversationUnreadInDb = async () => {};
+
+export const upsertUserProfileInDb = async (_profile: any) => {};
+
+export const getUserProfileFromDb = async (_userId: number) => {
+  return null;
+};

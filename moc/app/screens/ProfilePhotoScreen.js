@@ -1,25 +1,67 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
-    Image,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Image,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
+import avatarService from '../services/avatarService';
+
 export default function ProfilePhotoScreen() {
   const router = useRouter();
-  const { uri } = useLocalSearchParams();
+  const { uri, media } = useLocalSearchParams();
   const initialUri = Array.isArray(uri) ? uri[0] : uri;
   const [showOptions, setShowOptions] = useState(false);
   const [photoUri, setPhotoUri] = useState(initialUri);
+  const [isUploading, setIsUploading] = useState(false);
   const insets = useSafeAreaInsets();
+
+  const handleAvatarUpload = useCallback(async (selectedUri, mimeType) => {
+    if (!selectedUri) {
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const uploadedAvatarUrl = await avatarService.uploadAvatar(selectedUri, mimeType);
+      setPhotoUri(uploadedAvatarUrl);
+      router.replace({
+        pathname: '/screens/AccountSettings',
+        params: { updatedUri: uploadedAvatarUrl },
+      });
+    } catch (err) {
+      console.error('Avatar upload failed', err);
+      Alert.alert('Upload failed', 'Unable to update your profile photo right now. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    const rawMedia = Array.isArray(media) ? media[0] : media;
+    if (!rawMedia || isUploading) {
+      return;
+    }
+
+    try {
+      const parsedMedia = JSON.parse(String(rawMedia));
+      if (Array.isArray(parsedMedia) && parsedMedia.length && parsedMedia[0]) {
+        handleAvatarUpload(String(parsedMedia[0]));
+      }
+    } catch (error) {
+      console.warn('Unable to parse selected camera media', error);
+    }
+  }, [handleAvatarUpload, isUploading, media]);
 
   const openGallery = async () => {
     setShowOptions(false);
@@ -31,18 +73,14 @@ export default function ProfilePhotoScreen() {
     });
 
     if (!result.canceled && result.assets.length > 0) {
-      const selectedUri = result.assets[0].uri;
-      setPhotoUri(selectedUri);
-      router.replace({
-        pathname: '/screens/AccountSettings',
-        params: { updatedUri: selectedUri },
-      });
+      const selectedAsset = result.assets[0];
+      await handleAvatarUpload(selectedAsset.uri, selectedAsset.mimeType);
     }
   };
 
   const openCamera = () => {
     setShowOptions(false);
-    router.push('/screens/CameraScreen');
+    router.push({ pathname: '/screens/CameraScreen', params: { returnTo: '/screens/ProfilePhotoScreen' } });
   };
 
   return (
@@ -50,10 +88,10 @@ export default function ProfilePhotoScreen() {
       <StatusBar backgroundColor="black" barStyle="light-content" />
 
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton} disabled={isUploading}>
           <Icon name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => setShowOptions(true)} style={styles.editButton}>
+        <TouchableOpacity onPress={() => setShowOptions(true)} style={styles.editButton} disabled={isUploading}>
           <Icon name="edit" size={22} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -64,6 +102,13 @@ export default function ProfilePhotoScreen() {
         resizeMode="contain"
       />
 
+      {isUploading ? (
+        <View style={styles.loaderOverlay}>
+          <ActivityIndicator color="#fff" size="large" />
+          <Text style={styles.loaderText}>Uploading...</Text>
+        </View>
+      ) : null}
+
       <Modal
         isVisible={showOptions}
         onBackdropPress={() => setShowOptions(false)}
@@ -72,11 +117,11 @@ export default function ProfilePhotoScreen() {
         <View style={styles.sheet}>
           <Text style={styles.sheetTitle}>Profile photo</Text>
           <View style={styles.sheetOptions}>
-            <TouchableOpacity style={styles.optionBtn} onPress={openCamera}>
+            <TouchableOpacity style={styles.optionBtn} onPress={openCamera} disabled={isUploading}>
               <Icon name="photo-camera" size={26} color="#1f6ea7" />
               <Text style={styles.optionText}>Camera</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.optionBtn} onPress={openGallery}>
+            <TouchableOpacity style={styles.optionBtn} onPress={openGallery} disabled={isUploading}>
               <Icon name="photo-library" size={26} color="#1f6ea7" />
               <Text style={styles.optionText}>Gallery</Text>
             </TouchableOpacity>
@@ -105,6 +150,21 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     marginTop: 50,
+  },
+  loaderOverlay: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  loaderText: {
+    marginTop: 12,
+    color: '#fff',
+    fontSize: 14,
   },
   modal: {
     justifyContent: 'flex-end',
