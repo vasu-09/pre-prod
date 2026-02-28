@@ -21,6 +21,7 @@ export interface ChatMessageDto {
   iv?: string;
   ciphertext?: string;
   keyRef?: string;
+  senderDeviceId?: string | null;
   deletedBySender?: boolean;
   deletedByReceiver?: boolean;
   deletedForEveryone?: boolean;

@@ -42,6 +42,7 @@ type EncryptResult = {
     iv: string;
     ciphertext: string;
     keyRef: string;
+    senderDeviceId: string;
   };
   sharedKey: string; // base64
 };
@@ -345,7 +346,13 @@ const encodeMeta = (ephemeral: string, tagBase64?: string): Uint8Array => {
   return utf8ToBytes(JSON.stringify(meta));
 };
 
-const encryptPayload = (sharedKey: Uint8Array, plaintext: string, keyRef: string, ephemeral: string): EncryptResult => {
+const encryptPayload = (
+  sharedKey: Uint8Array,
+  plaintext: string,
+  keyRef: string,
+  ephemeral: string,
+  senderDeviceId: string,
+): EncryptResult => {
   const nonce = randomBytes(16);
   const plainBytes = utf8ToBytes(plaintext);
   const keystream = deriveKeystream(sharedKey, nonce, plainBytes.length);
@@ -364,6 +371,7 @@ const encryptPayload = (sharedKey: Uint8Array, plaintext: string, keyRef: string
       iv: bytesToBase64(nonce),
       ciphertext: bytesToBase64(cipher),
       keyRef,
+      senderDeviceId,
     },
     sharedKey: bytesToBase64(sharedKey),
   };
@@ -553,8 +561,10 @@ export class E2EEClient {
       return null;
     }
     const { shared, ephemeralPublic } = deriveEphemeral(prekey);
-    const keyRef = bundle.oneTimePrekeyPub ? `otk:${bundle.oneTimePrekeyPub}` : 'spk';
-    const envelope = encryptPayload(shared, plaintext, keyRef, ephemeralPublic);
+    const keyRef = bundle.oneTimePrekeyPub
+      ? `otk:${bundle.oneTimePrekeyPub}`
+      : `spk:${this.state.deviceId}:${bundle.deviceId}`;
+    const envelope = encryptPayload(shared, plaintext, keyRef, ephemeralPublic, this.state.deviceId);
 
      if (fingerprintChanged && cached) {
       console.warn('[E2EE] Detected changed device fingerprint; refreshing session before send');

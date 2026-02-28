@@ -12,6 +12,7 @@ export type InternalMessage = {
   iv?: string | null;
   aad?: string | null;
   keyRef?: string | null;
+  senderDeviceId?: string | null;
   pending?: boolean;
   error?: boolean;
   readByPeer?: boolean;
@@ -42,6 +43,7 @@ export const mergeIncomingMessage = (
       aad: incoming.aad ?? existing.aad,
       iv: incoming.iv ?? existing.iv,
       keyRef: incoming.keyRef ?? existing.keyRef,
+      senderDeviceId: incoming.senderDeviceId ?? existing.senderDeviceId,
       readByPeer: incoming.readByPeer ?? existing.readByPeer,
       deliveryStatus: incoming.deliveryStatus ?? existing.deliveryStatus,
       deletedBySender: incoming.deletedBySender ?? existing.deletedBySender,

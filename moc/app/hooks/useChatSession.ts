@@ -168,6 +168,7 @@ const toStoredMessage = (record: MessageRecordInput): InternalMessage => ({
   aad: record.aad ?? null,
   iv: record.iv ?? null,
   keyRef: record.keyRef ?? null,
+  senderDeviceId: record.senderDeviceId ?? null,
   pending: record.pending,
   error: record.error,
   readByPeer: record.readByPeer,
@@ -244,6 +245,7 @@ export const useChatSession = ({
         aad: payload?.aad ?? null,
         iv: payload?.iv ?? null,
         keyRef: payload?.keyRef ?? null,
+        senderDeviceId: payload?.senderDeviceId ?? null,
         e2ee: payload?.e2ee ?? message.e2ee ?? false,
         createdAt: message.serverTs ?? new Date().toISOString(),
         pending: message.pending,
@@ -431,6 +433,7 @@ export const useChatSession = ({
           const text = await e2eeClient.decryptEnvelope(envelope, Boolean(fromSelf), {
             senderId: msg.senderId ?? undefined,
             sessionId: msg.keyRef ?? null,
+            senderDeviceId: msg.senderDeviceId ?? null,
           });
           updates[msg.messageId] = { text, failed: false };
         } catch (err) {
@@ -627,6 +630,7 @@ export const useChatSession = ({
                   text = await client.decryptEnvelope(envelope, Boolean(fromSelf), {
                   senderId: dto.senderId,
                   sessionId: dto.keyRef ?? null,
+                  senderDeviceId: dto.senderDeviceId ?? null,
                 });
               } catch (decryptErr) {
                 console.warn('Failed to decrypt history message', decryptErr);
@@ -658,6 +662,7 @@ export const useChatSession = ({
             iv: iv ?? null,
             aad: aad ?? null,
             keyRef: dto.keyRef ?? null,
+            senderDeviceId: dto.senderDeviceId ?? null,
           };
         }),
       );
@@ -866,6 +871,7 @@ export const useChatSession = ({
           iv: payloadIv ?? null,
           aad: payloadAad ?? null,
           keyRef: payload.keyRef ?? null,
+          senderDeviceId: payload.senderDeviceId ?? null,
         } as InternalMessage;
         if (isDeletedForUser(merged)) {
           setRawMessages(prev => prev.filter(message => message.messageId !== merged.messageId));
@@ -916,6 +922,7 @@ export const useChatSession = ({
             iv: payloadIv ?? null,
             aad: payloadAad ?? null,
             keyRef: payload.keyRef ?? null,
+            senderDeviceId: payload.senderDeviceId ?? null,
           };
           if (isDeletedForUser(selfUpdate)) {
             setRawMessages(prev => prev.filter(message => message.messageId !== selfUpdate.messageId));
@@ -947,6 +954,7 @@ export const useChatSession = ({
                 .decryptEnvelope(envelope, false, {
                 senderId: base.senderId ?? undefined,
                 sessionId: payload.keyRef ?? null,
+                senderDeviceId: payload.senderDeviceId ?? null,
               })
               .then(text => finalize(text))
               .catch(err => {
@@ -979,6 +987,7 @@ export const useChatSession = ({
               iv: payloadIv ?? null,
               aad: payloadAad ?? null,
               keyRef: payload.keyRef ?? null,
+              senderDeviceId: payload.senderDeviceId ?? null,
             };
             if (isDeletedForUser(merged)) {
               setRawMessages(prev => prev.filter(message => message.messageId !== merged.messageId));
@@ -1024,6 +1033,7 @@ export const useChatSession = ({
           iv: payloadIv ?? null,
           aad: payloadAad ?? null,
           keyRef: payload.keyRef ?? null,
+          senderDeviceId: payload.senderDeviceId ?? null,
         };
         if (isDeletedForUser(merged)) {
           setRawMessages(prev => prev.filter(message => message.messageId !== merged.messageId));
@@ -1258,6 +1268,7 @@ export const useChatSession = ({
           decrypted = await client.decryptEnvelope(envelope, Boolean(fromSelf), {
             senderId: message.senderId ?? undefined,
             sessionId: message.raw.keyRef ?? null,
+            senderDeviceId: message.raw.senderDeviceId ?? null,
           });
         } else if (keyToUse && message.raw?.ciphertext && message.raw?.iv) {
           decrypted = await decryptMessage(
@@ -1298,6 +1309,7 @@ export const useChatSession = ({
           aad: merged.aad ?? undefined,
           iv: merged.iv ?? undefined,
           keyRef: merged.keyRef ?? undefined,
+          senderDeviceId: merged.senderDeviceId ?? undefined,
           e2ee: merged.e2ee,
         };
         saveMessagesToDb([toDbRecord(merged, payload)]).catch(err =>
@@ -1486,6 +1498,7 @@ export const useChatSession = ({
             iv: encrypted.envelope.iv,
             ciphertext: encrypted.envelope.ciphertext,
             keyRef: encrypted.envelope.keyRef,
+            senderDeviceId: encrypted.envelope.senderDeviceId,
           };
         } catch (encryptErr) {
           console.warn('Failed to encrypt message', encryptErr);

@@ -92,6 +92,7 @@ type MessageRow = {
   aad: string | null;
   iv: string | null;
   key_ref: string | null;
+  sender_device_id?: string | null;
   e2ee: number;
   created_at: string | null;
   pending: number;
@@ -148,6 +149,7 @@ export type MessageRecordInput = {
   aad?: string | null;
   iv?: string | null;
   keyRef?: string | null;
+  senderDeviceId?: string | null;
   e2ee?: boolean;
   createdAt?: string | null;
   pending?: boolean;
@@ -508,6 +510,7 @@ const mapMessageRow = (row: MessageRow): MessageRecordInput => ({
   aad: row.aad,
   iv: row.iv,
   keyRef: row.key_ref,
+  senderDeviceId: row.sender_device_id ?? null,
   e2ee: row.e2ee === 1,
   createdAt: row.created_at,
   pending: row.pending === 1,
