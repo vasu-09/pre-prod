@@ -214,6 +214,23 @@ export const MessageContent = ({
     }
     return null;
   }, [structuredPayload]);
+
+  const imagePayload = useMemo(() => {
+    if (structuredPayload?.type !== 'image') {
+      return null;
+    }
+    const media = Array.isArray(structuredPayload?.media)
+      ? structuredPayload.media.filter(entry => typeof entry?.url === 'string' && entry.url)
+      : [];
+    if (!media.length) {
+      return null;
+    }
+    return {
+      media,
+      caption: typeof structuredPayload?.caption === 'string' ? structuredPayload.caption : '',
+    };
+  }, [structuredPayload]);
+
   const replyPayload = useMemo(() => {
     if (structuredPayload?.type === 'reply' && typeof structuredPayload?.body === 'string') {
       return structuredPayload;
@@ -410,6 +427,24 @@ export const MessageContent = ({
                   ) : null}
                 </View>
               ) : null}
+              </View>
+             ) : imagePayload ? (
+            <View style={styles.imageMessageWrapper}>
+              {imagePayload.media.length > 1 ? (
+                <View style={styles.imageGrid}>
+                  {imagePayload.media.slice(0, 4).map((entry, index) => (
+                    <Image
+                      key={`${entry.url}-${index}`}
+                      source={{ uri: entry.thumbUrl || entry.url }}
+                      style={styles.imageGridItem}
+                      resizeMode="cover"
+                    />
+                  ))}
+                </View>
+              ) : (
+                <Image source={{ uri: imagePayload.media[0].url }} style={styles.imageSingle} resizeMode="cover" />
+              )}
+              {imagePayload.caption ? <Text style={styles.messageText}>{imagePayload.caption}</Text> : null}
             </View>
              ) : locationPayload ? (
            <View style={styles.locationMessageWrapper}>
@@ -503,7 +538,7 @@ export const MessageContent = ({
           )}
         </View>
       )}
-       {todoPayload ? null : locationPayload ? null : showStatusRow ? (
+       {todoPayload ? null : locationPayload ? null : imagePayload ? null : showStatusRow ? (
         <View style={styles.messageStatusRow}>
           {item.time ? (
             <Text
@@ -577,6 +612,7 @@ export default function ChatDetailScreen() {
   const paramTitle = params?.title ? String(params.title) : null;
   const paramPeerId = params?.peerId ? Number(params.peerId) : null;
   const paramLocation = params?.location ?? null;
+  const paramMediaPayload = params?.mediaPayload ?? null;
   console.log('[ChatDetailScreen] params', params);
   const roomSummary = useMemo(() => {
     if (!rooms?.length) return null;
@@ -601,6 +637,7 @@ export default function ChatDetailScreen() {
   const {
     messages: sessionMessages,
     sendTextMessage,
+    sendImageMessage,
     notifyTyping,
     markLatestRead,
     typingUsers,
@@ -774,7 +811,8 @@ export default function ChatDetailScreen() {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [pendingDeleteMessages, setPendingDeleteMessages] = useState([]);
   const lastLocationRef = useRef(null);
-  
+  const lastMediaPayloadRef = useRef(null);
+
   const getReplyPreviewText = useCallback(msg => {
     if (!msg) return '';
     if (msg.audio) return 'Audio message';
@@ -961,7 +999,19 @@ const makeReplyPayload = useCallback(
   };
   const openCamera = () => {
     setAttachMenuVisible(false);
-    router.push('/screens/CameraScreen');
+    router.push({
+      pathname: '/screens/CameraScreen',
+      params: {
+        returnTo: '/screens/MediaComposerScreen',
+        chatReturnTo: '/screens/ChatDetailScreen',
+        ...(roomId ? { roomId: String(roomId) } : {}),
+        ...(roomKey ? { roomKey: String(roomKey) } : {}),
+        ...(chatTitle ? { title: String(chatTitle) } : {}),
+        ...(peerId ? { peerId: String(peerId) } : {}),
+        ...(avatarUri ? { image: String(avatarUri) } : {}),
+        ...(phoneNumber ? { phone: String(phoneNumber) } : {}),
+      },
+    });
   };
 
   const hideOverlay = () => {
@@ -1227,6 +1277,55 @@ const makeReplyPayload = useCallback(
     }
   }, [messages, markLatestRead]);
 
+
+
+  const inferMimeType = useCallback(uri => {
+    const normalized = (uri || '').toLowerCase();
+    if (normalized.endsWith('.png')) return 'image/png';
+    if (normalized.endsWith('.webp')) return 'image/webp';
+    if (normalized.endsWith('.heic') || normalized.endsWith('.heif')) return 'image/heic';
+    return 'image/jpeg';
+  }, []);
+
+  const uploadImageToMediaStore = useCallback(async uri => {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    const contentType = blob.type || inferMimeType(uri);
+    const intent = await apiClient.post('/api/media/uploads', {
+      contentType,
+      sizeBytes: blob.size,
+      resumable: false,
+    });
+    const { mediaId, putUrl } = intent.data || {};
+    if (!mediaId || !putUrl) {
+      throw new Error('Upload intent missing media details');
+    }
+
+    const putResponse = await fetch(putUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: blob,
+    });
+    if (!putResponse.ok) {
+      throw new Error(`Upload failed with status ${putResponse.status}`);
+    }
+
+    await apiClient.post(`/api/media/${mediaId}/complete`);
+    const urlResponse = await apiClient.get(`/api/media/${mediaId}/urls`);
+    const mediaUrls = urlResponse.data || {};
+    if (!mediaUrls.original) {
+      throw new Error('No media URL returned from backend');
+    }
+    return {
+      mediaId,
+      url: mediaUrls.original,
+      thumbUrl: mediaUrls.thumb || null,
+      contentType,
+      width: mediaUrls.width || null,
+      height: mediaUrls.height || null,
+    };
+  }, [inferMimeType]);
+
   useEffect(() => {
     if (!paramLocation || !roomId) {
       return;
@@ -1260,6 +1359,55 @@ const makeReplyPayload = useCallback(
       console.warn('Send location error:', err);
     });
   }, [navigation, paramLocation, roomId, sendTextMessage]);
+
+
+
+  useEffect(() => {
+    if (!paramMediaPayload || !roomId) {
+      return;
+    }
+    const rawPayload = Array.isArray(paramMediaPayload) ? paramMediaPayload[0] : paramMediaPayload;
+    if (!rawPayload || rawPayload === lastMediaPayloadRef.current) {
+      return;
+    }
+
+    let parsedPayload = null;
+    try {
+      parsedPayload = JSON.parse(rawPayload);
+    } catch (error) {
+      console.warn('Failed to parse media payload', error);
+      return;
+    }
+    const selectedMedia = Array.isArray(parsedPayload?.media)
+      ? parsedPayload.media.filter(Boolean)
+      : [];
+    if (!selectedMedia.length) {
+      return;
+    }
+
+    lastMediaPayloadRef.current = rawPayload;
+    navigation.setParams({ mediaPayload: undefined });
+
+    (async () => {
+      try {
+        const uploadedMedia = [];
+        for (const uri of selectedMedia) {
+          const uploaded = await uploadImageToMediaStore(uri);
+          uploadedMedia.push(uploaded);
+        }
+
+        const encryptedMetadata = JSON.stringify({
+          type: 'image',
+          media: uploadedMedia,
+          caption: typeof parsedPayload?.caption === 'string' ? parsedPayload.caption.trim() : '',
+        });
+        await sendImageMessage(encryptedMetadata);
+      } catch (err) {
+        console.warn('Send image error:', err);
+        Alert.alert('Media upload failed', 'Unable to send one or more images. Please try again.');
+      }
+    })();
+  }, [navigation, paramMediaPayload, roomId, sendImageMessage, uploadImageToMediaStore]);
 
   useEffect(() => {
     const onFocus = () => {
@@ -2788,6 +2936,28 @@ const styles = StyleSheet.create({
   messageTextWrapper: {
     flexDirection: 'column',
     alignItems: 'flex-start',
+  },
+  imageMessageWrapper: {
+    alignItems: 'flex-start',
+    maxWidth: 250,
+  },
+  imageSingle: {
+    width: 220,
+    height: 220,
+    borderRadius: 12,
+    marginBottom: 6,
+  },
+  imageGrid: {
+    width: 220,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 6,
+  },
+  imageGridItem: {
+    width: 106,
+    height: 106,
+    borderRadius: 8,
+    margin: 2,
   },
   locationCard: {
     backgroundColor: 'transparent',

@@ -68,6 +68,8 @@ type ReplyMetadata = {
 };
 
 const MESSAGE_TYPE_TEXT = 'TEXT';
+const MESSAGE_TYPE_IMAGE = 'IMAGE';
+type OutgoingMessageType = typeof MESSAGE_TYPE_TEXT | typeof MESSAGE_TYPE_IMAGE;
 const SHOULD_LOG_DECRYPT = __DEV__ && process.env.EXPO_PUBLIC_DEBUG_DECRYPT !== '0';
 const SHOULD_LOG_E2EE = __DEV__ && process.env.EXPO_PUBLIC_DEBUG_E2EE !== '0';
 const DECRYPTION_PENDING_MESSAGE = 'Waiting for this message. This may take a while.';
@@ -1417,8 +1419,12 @@ export const useChatSession = ({
     [roomId, sendTypingUpdate],
   );
 
-  const sendTextMessage = useCallback(
-    async (text: string, replyMetadata?: ReplyMetadata) => {
+  const sendEncryptedMessage = useCallback(
+    async (
+      text: string,
+      messageType: OutgoingMessageType = MESSAGE_TYPE_TEXT,
+      replyMetadata?: ReplyMetadata,
+    ) => {
       if (!resolvedRoomKey || !text.trim()) {
         return { success: false as const };
       }
@@ -1489,7 +1495,7 @@ export const useChatSession = ({
           }
           payload = {
             messageId,
-            type: MESSAGE_TYPE_TEXT,
+            type: messageType,
             e2ee: true,
             body,
             e2eeVer: encrypted.envelope.e2eeVer,
@@ -1513,7 +1519,7 @@ export const useChatSession = ({
           const encrypted = await encryptMessage(body, derivedSharedKey);
           payload = {
             messageId,
-            type: MESSAGE_TYPE_TEXT,
+            type: messageType,
             e2ee: true,
             body,
             algo: 'XSalsa20-Poly1305',
@@ -1540,7 +1546,7 @@ export const useChatSession = ({
         messageId,
         roomId: normalizedRoomId,
         senderId: currentUserId,
-        type: MESSAGE_TYPE_TEXT,
+        type: messageType,
         body,
         ...(normalizedReply ?? {}),
         serverTs: nowIso,
@@ -1608,6 +1614,17 @@ export const useChatSession = ({
     ],
   );
 
+  const sendTextMessage = useCallback(
+    async (text: string, replyMetadata?: ReplyMetadata) =>
+      sendEncryptedMessage(text, MESSAGE_TYPE_TEXT, replyMetadata),
+    [sendEncryptedMessage],
+  );
+
+  const sendImageMessage = useCallback(
+    async (payload: string) => sendEncryptedMessage(payload, MESSAGE_TYPE_IMAGE),
+    [sendEncryptedMessage],
+  );
+
   const markLatestRead = useCallback(async () => {
     if (!roomId || !resolvedRoomKey) {
       return;
@@ -1648,6 +1665,7 @@ export const useChatSession = ({
     isConnected,
     error,
     sendTextMessage,
+    sendImageMessage,
     notifyTyping,
     markLatestRead,
     typingUsers,

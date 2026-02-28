@@ -21,7 +21,7 @@ const CamFlash = { off: 'off', on: 'on', auto: 'auto', torch: 'torch' };
 
 function CameraScreen() {
   const router = useRouter();
-  const { returnTo, param = 'uri' } = useLocalSearchParams();
+  const { returnTo, chatReturnTo, roomId, roomKey, title, peerId, image, phone } = useLocalSearchParams();
 
   const insets = useSafeAreaInsets();
   const cameraRef = useRef(null);
@@ -39,11 +39,25 @@ function CameraScreen() {
   const [loadingRecent, setLoadingRecent] = useState(true);
 
   const onSelect = useCallback(
-  (uri) => {
-    router.replace({ pathname: returnTo || '/', params: { [param]: uri } });
-  },
-  [router, returnTo, param]
-);
+  (uris) => {
+      const selected = Array.isArray(uris) ? uris.filter(Boolean) : [uris].filter(Boolean);
+      if (!selected.length) return;
+      router.replace({
+        pathname: returnTo || '/screens/MediaComposerScreen',
+        params: {
+          media: JSON.stringify(selected),
+          ...(chatReturnTo ? { chatReturnTo: String(chatReturnTo) } : {}),
+          ...(roomId ? { roomId: String(roomId) } : {}),
+          ...(roomKey ? { roomKey: String(roomKey) } : {}),
+          ...(title ? { title: String(title) } : {}),
+          ...(peerId ? { peerId: String(peerId) } : {}),
+          ...(image ? { image: String(image) } : {}),
+          ...(phone ? { phone: String(phone) } : {}),
+        },
+      });
+    },
+    [router, returnTo, chatReturnTo, roomId, roomKey, title, peerId, image, phone],
+  );
 
   // Request permissions on mount
   useEffect(() => {
@@ -91,9 +105,12 @@ function CameraScreen() {
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.8,
+        allowsMultipleSelection: true,
+        orderedSelection: true,
+        selectionLimit: 10,
       });
       if (!res.canceled) {
-        onSelect(res.assets[0].uri);
+        onSelect((res.assets || []).map(asset => asset?.uri));
       }
     } catch (e) {
       console.warn('ImagePicker error', e);
