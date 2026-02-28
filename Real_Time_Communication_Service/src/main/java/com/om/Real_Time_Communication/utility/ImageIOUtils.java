@@ -15,6 +15,7 @@ public final class ImageIOUtils {
     /** Downscale a JPEG/PNG/etc to targetWidth (keep aspect), return JPEG bytes. */
     public static byte[] downscaleJpeg(byte[] input, int targetWidth) {
         Objects.requireNonNull(input, "image bytes");
+        if (targetWidth <= 0) throw new IllegalArgumentException("targetWidth must be > 0");
         try (ByteArrayInputStream in = new ByteArrayInputStream(input);
              ByteArrayOutputStream out = new ByteArrayOutputStream(16 * 1024)) {
 

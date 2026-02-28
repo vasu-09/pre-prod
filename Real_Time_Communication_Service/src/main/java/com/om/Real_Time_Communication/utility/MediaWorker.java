@@ -5,7 +5,6 @@ import com.google.cloud.storage.*;
 import com.om.Real_Time_Communication.Repository.MediaRepository;
 import com.om.Real_Time_Communication.models.Media;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -18,11 +17,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Component
 @Profile("!test")
 
 public class MediaWorker {
+
+    private static final Logger log = LoggerFactory.getLogger(MediaWorker.class);
 
     private final MediaRepository repo;
     private final Storage storage;   // GCS client
@@ -38,7 +41,16 @@ public class MediaWorker {
     @RabbitListener(queues = MediaQueueConfig.QUEUE_PROCESS)
     @Transactional
     public void onProcess(Map<String,Object> msg)  {
-        Long mediaId = ((Number) msg.get("mediaId")).longValue();
+        if (msg == null || msg.get("mediaId") == null) {
+            log.warn("Skipping media job with empty payload: {}", msg);
+            return;
+        }
+        if (!(msg.get("mediaId") instanceof Number mediaIdValue)) {
+            log.warn("Skipping media job with invalid mediaId payload: {}", msg.get("mediaId"));
+            return;
+        }
+
+        Long mediaId = mediaIdValue.longValue();
         Media m = repo.findById(mediaId).orElseThrow();
 
         m.setStatus("PROCESSING");
@@ -100,8 +112,10 @@ public class MediaWorker {
             m.setStatus("READY");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.error("Media worker interrupted for mediaId={}", mediaId, e);
             m.setStatus("FAILED");
         } catch (Exception e) {
+            log.error("Media worker failed for mediaId={}", mediaId, e);
             m.setStatus("FAILED");
         } finally {
             m.setUpdatedAt(Instant.now());

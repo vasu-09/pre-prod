@@ -14,6 +14,9 @@ public class MediaJobs {
     public MediaJobs(RabbitTemplate rabbit) { this.rabbit = rabbit; }
 
     public void enqueueProcess(Long mediaId) {
+        if (mediaId == null) {
+            throw new IllegalArgumentException("mediaId is required");
+        }
         rabbit.convertAndSend(MediaQueueConfig.EXCHANGE,
                 MediaQueueConfig.ROUTING_KEY_PROCESS,
                 Map.of("mediaId", mediaId));
