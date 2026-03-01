@@ -1,3 +1,4 @@
+
 package com.om.To_Do.List.ecosystem.services;
 
 import com.om.To_Do.List.ecosystem.model.Subscription;
@@ -43,6 +44,9 @@ public class PaymentService {
 
     @Value("${razorpay.webhookSecret:}") private String webhookSecret;
 
+    @Value("${moc.subscription.default-plan-id}")
+    private String defaultPlanId;
+    
     private RazorpayClient client;
 
     private RazorpayClient client() throws RazorpayException {
@@ -80,8 +84,9 @@ public class PaymentService {
      *  - Start at a non-peak window per NPCI UPI guidelines
      */
     @Transactional
-    public Map<String, Object> createSubscription(Long userId, String planId, String email, String contact) {
+    public Map<String, Object> createSubscription(Long userId, String email, String contact) {
         try {
+            String planId = defaultPlanId;
             // 1) Fetch plan and validate amount (Razorpay amounts are in paise)
             Entity plan = client().plans.fetch(planId);
             // plan.get("item") returns a nested JSON object; cast to org.json.JSONObject

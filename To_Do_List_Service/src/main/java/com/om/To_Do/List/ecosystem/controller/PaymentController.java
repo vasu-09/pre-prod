@@ -23,11 +23,10 @@ public class PaymentController {
     @PostMapping("/subscriptions")
     public ResponseEntity<?> createSubscription(@RequestBody Map<String, Object> body) {
         Long userId = Long.valueOf(body.get("userId").toString());
-        String planId = body.get("planId").toString();
         String email = body.get("email") == null ? null : body.get("email").toString();
         String contact = body.get("contact") == null ? null : body.get("contact").toString();
 
-        var resp = paymentService.createSubscription(userId, planId, email, contact);
+        var resp = paymentService.createSubscription(userId, email, contact);
         return ResponseEntity.ok(resp);
     }
 
