@@ -5,6 +5,8 @@ import { upsertUserProfileInDb } from './database';
 type AvatarIntentResponse = {
   key?: string;
   putUrl?: string;
+  uploadUrl?: string;
+  signedUrl?: string;
 };
 
 const inferContentType = (uri: string, fallback?: string) => {
@@ -29,6 +31,8 @@ const getUploadPayload = async (uri: string, contentType: string) => {
 };
 
 const uploadToSignedUrl = async (putUrl: string, blob: Blob, contentType: string) => {
+  console.log('[avatar] PUT signed URL host/path', putUrl);
+
   const putResponse = await fetch(putUrl, {
     method: 'PUT',
     headers: {
@@ -38,7 +42,23 @@ const uploadToSignedUrl = async (putUrl: string, blob: Blob, contentType: string
   });
 
   if (!putResponse.ok) {
-    throw new Error(`Avatar upload failed (${putResponse.status})`);
+    let errorText = '';
+
+    try {
+      errorText = await putResponse.text();
+    } catch {
+      // Ignore read failures so we can still throw a useful status-based error.
+    }
+
+    console.error('[avatar] Signed URL upload failed', {
+      status: putResponse.status,
+      statusText: putResponse.statusText,
+      responseBody: errorText,
+      contentType,
+      putUrl,
+    });
+
+    throw new Error(`Avatar upload failed (${putResponse.status}) ${errorText || ''}`);
   }
 };
 
@@ -52,8 +72,13 @@ export const uploadAvatar = async (uri: string, mimeType?: string | null): Promi
     sha256: null,
   });
 
+  console.log('[avatar] intent response', intentResponse?.data);
+
   const key = intentResponse?.data?.key;
-  const putUrl = intentResponse?.data?.putUrl;
+  const putUrl =
+    intentResponse?.data?.putUrl ??
+    intentResponse?.data?.uploadUrl ??
+    intentResponse?.data?.signedUrl;
 
   if (!key || !putUrl) {
     throw new Error('Avatar intent response missing upload details');
