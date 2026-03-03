@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useState } from 'react';
 import {
   Alert,
@@ -11,14 +12,92 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
+import apiClient from '../services/apiClient';
+import { getStoredSession } from '../services/authStorage';
+
 export default function SubscriptionSettings() {
   const router = useRouter();
 
   // Replace with real subscription data
   const [isSubscribed] = useState(true);
   const [autopayEnabled, setAutopayEnabled] = useState(false);
+  const [isSubmittingAutopay, setIsSubmittingAutopay] = useState(false);
   const startDate = '2025-07-01';
   const expiryDate = '2025-08-01';
+
+  const checkSubscriptionStatus = async (userId) => {
+    const maxAttempts = 5;
+    const intervalMs = 2500;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const { data } = await apiClient.get(`/api/v1/payments/subscription/${userId}/status`);
+        if (data?.isActive) {
+          setAutopayEnabled(true);
+          Alert.alert('AutoPay enabled', 'Your subscription is active now.');
+          return;
+        }
+      } catch (error) {
+        if (attempt === maxAttempts - 1) {
+          throw error;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+
+    Alert.alert(
+      'Authorization pending',
+      'We are still waiting for payment confirmation. Please check again in a moment.'
+    );
+  };
+
+  const createAutopaySubscription = async () => {
+    if (isSubmittingAutopay) {
+      return;
+    }
+
+    try {
+      setIsSubmittingAutopay(true);
+
+      const session = await getStoredSession();
+      const userId = session?.userId ? Number(session.userId) : null;
+
+      if (!userId) {
+        Alert.alert('Unable to continue', 'Please sign in again and retry.');
+        return;
+      }
+
+      const payload = {
+        userId,
+        contact: session?.username ?? null,
+      };
+
+      const { data } = await apiClient.post('/api/v1/payments/subscriptions', payload);
+      const shortUrl = data?.shortUrl ?? data?.short_url;
+
+      if (!shortUrl) {
+        throw new Error('Mandate authorization link not available.');
+      }
+
+      await WebBrowser.openBrowserAsync(shortUrl, {
+        showTitle: true,
+        enableBarCollapsing: true,
+      });
+
+      await checkSubscriptionStatus(userId);
+    } catch (error) {
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'We could not start AutoPay setup. Please try again.';
+
+      Alert.alert('AutoPay setup failed', message);
+      setAutopayEnabled(false);
+    } finally {
+      setIsSubmittingAutopay(false);
+    }
+  };
 
   const handleAutopayToggle = async (value) => {
     if (value) {
@@ -31,7 +110,7 @@ export default function SubscriptionSettings() {
             text: 'Continue',
             onPress: () => {
               // Navigate to a screen that launches Razorpay/Stripe Subscription Checkout
-              router.push('/screens/AutoPaySetupScreen');
+              createAutopaySubscription();
             },
           },
         ]
@@ -78,6 +157,7 @@ export default function SubscriptionSettings() {
         <Text style={styles.settingText}>AutoPay</Text>
         <Switch
           value={autopayEnabled}
+          disabled={isSubmittingAutopay}
           onValueChange={handleAutopayToggle}
           thumbColor={autopayEnabled ? '#1f6ea7' : '#ccc'}
         />

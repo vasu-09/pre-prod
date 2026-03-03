@@ -17,7 +17,6 @@ import apiClient from '../services/apiClient';
 import { getStoredSession } from '../services/authStorage';
 import { getUserProfileFromDb, upsertUserProfileInDb } from '../services/database';
 
-const DEFAULT_PHOTO = 'https://randomuser.me/api/portraits/men/2.jpg';
 
 const resolveParamValue = (param) => {
   if (Array.isArray(param)) {
@@ -29,7 +28,7 @@ const resolveParamValue = (param) => {
 export default function AccountSettings() {
   const router = useRouter();
   const { updatedUri, updatedName, updatedEmail } = useLocalSearchParams();
-  const [photoUri, setPhotoUri] = useState(DEFAULT_PHOTO);
+  const [photoUri, setPhotoUri] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -59,7 +58,7 @@ export default function AccountSettings() {
       if (!userIdValue) {
         setName('');
         setEmail('');
-        setPhotoUri(DEFAULT_PHOTO);
+        setPhotoUri('');
         setError('Unable to load your profile. Please sign in again.');
         return;
       }
@@ -68,7 +67,7 @@ export default function AccountSettings() {
       if (isActiveRef.current && cachedProfile) {
         setName(cachedProfile.displayName ?? '');
         setEmail(cachedProfile.email ?? '');
-        setPhotoUri(cachedProfile.avatarUrl || DEFAULT_PHOTO);
+        setPhotoUri(cachedProfile.avatarUrl || '');
       }
 
       const { data } = await apiClient.get(`/user/${userIdValue}`);
@@ -78,9 +77,9 @@ export default function AccountSettings() {
 
       const nextName = typeof data?.displayName === 'string' ? data.displayName : '';
       const nextEmail = typeof data?.email === 'string' ? data.email : '';
-      const nextPhoto = typeof data?.avatarUrl === 'string' && data.avatarUrl.length
+      const nextPhoto = typeof data?.avatarUrl === 'string' && data.avatarUrl.trim().length
         ? data.avatarUrl
-        : DEFAULT_PHOTO;
+        : '';
 
         await upsertUserProfileInDb({
         userId: userIdValue,
@@ -175,7 +174,13 @@ export default function AccountSettings() {
           <TouchableOpacity
             onPress={() => router.push({ pathname: '/screens/ProfilePhotoScreen', params: { uri: photoUri } })}
           >
-            <Image source={{ uri: photoUri }} style={styles.avatar} />
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.avatar} />
+            ) : (
+              <View style={styles.fallbackAvatar}>
+                <Icon name="person" size={46} color="#757575" />
+              </View>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -242,6 +247,14 @@ const styles = StyleSheet.create({
     height: 90,
     borderRadius: 45,
     backgroundColor: '#ccc',
+  },
+  fallbackAvatar: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#d9d9d9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   changePhoto: { color: '#1f6ea7', marginTop: 8, fontSize: 14 },
   loader: { marginBottom: 12 },
