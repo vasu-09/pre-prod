@@ -1291,8 +1291,14 @@ const makeReplyPayload = useCallback(
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
-      const contentType = blob.type || inferMimeType(uri);
+      const contentType = mimeTypeOverride || blob.type || inferMimeType(uri);
+
+      if (!roomId) {
+        throw new Error('Missing roomId for media upload');
+      }
+
       const intent = await apiClient.post('/api/media/uploads', {
+        roomId,
         contentType,
         sizeBytes: blob.size,
         resumable: false,
@@ -1336,7 +1342,7 @@ const makeReplyPayload = useCallback(
       });
       throw error;
     }
-  }, [inferMimeType]);
+  }, [inferMimeType, roomId]);
 
   useEffect(() => {
     if (!paramLocation || !roomId) {
