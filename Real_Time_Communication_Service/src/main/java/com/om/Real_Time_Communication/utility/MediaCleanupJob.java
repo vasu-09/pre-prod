@@ -29,7 +29,7 @@ public class MediaCleanupJob {
 
     @Scheduled(cron = "0 0 * * * *") // hourly
     public void purge() {
-        try {
+         try {
             Instant cutoff = Instant.now().minusSeconds(staleSeconds);
             long removed = repo.deleteByStatusAndCreatedAtBefore("CREATED", cutoff);
             log.info("Media cleanup deleted={}", removed);

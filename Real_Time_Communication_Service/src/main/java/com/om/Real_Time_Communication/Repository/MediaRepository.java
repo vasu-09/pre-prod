@@ -10,10 +10,7 @@ import java.time.Instant;
 
 @Repository
 public interface MediaRepository extends JpaRepository<Media, Long> {
-    /**
-     * Delete media records in the given status created before the cutoff.
-     * Returns the number of rows removed so a cleanup job can log activity.
-     */
+
     @Modifying
     @Transactional
     long deleteByStatusAndCreatedAtBefore(String status, Instant createdAt);

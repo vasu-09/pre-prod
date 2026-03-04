@@ -281,7 +281,7 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
             return end > 0 ? remainder.substring(0, end) : remainder;
         }
 
-        iif (dest.startsWith("/topic/room.")) {
+        if (dest.startsWith("/topic/room.")) {
             String remainder = dest.substring("/topic/room.".length());
             int end = findSeparator(remainder);
             return end > 0 ? remainder.substring(0, end) : remainder;
@@ -337,3 +337,4 @@ public class StompSecurityInterceptor implements ChannelInterceptor {
         static boolean canPublish(Long userId, String roomId) { return true; }
     }
 }
+

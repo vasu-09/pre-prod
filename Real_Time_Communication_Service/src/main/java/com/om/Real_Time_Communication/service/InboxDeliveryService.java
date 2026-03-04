@@ -215,6 +215,7 @@ public class InboxDeliveryService {
             e.put("iv", m.getIv());
             e.put("ciphertext", m.getCiphertext());
             e.put("keyRef", m.getKeyRef());
+            e.put("senderDeviceId", m.getSenderDeviceId());
         } else {
             e.put("body", m.getBody());
         }

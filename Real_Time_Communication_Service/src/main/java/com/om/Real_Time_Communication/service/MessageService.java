@@ -138,6 +138,9 @@ public class MessageService {
         if (dto.getKeyRef() == null || dto.getKeyRef().isBlank()) {
             throw new IllegalArgumentException("keyRef required when e2ee is enabled");
         }
+        if ("spk".equals(dto.getKeyRef())) {
+            throw new IllegalArgumentException("keyRef must include session/device context");
+        }
 
         if (dto.getBody() != null && !dto.getBody().isBlank()) {
             log.warn("Dropping plaintext body for e2ee messageId={} roomId={}", dto.getMessageId(), roomId);
@@ -150,6 +153,7 @@ public class MessageService {
         msg.setIv(dto.getIv());
         msg.setCiphertext(dto.getCiphertext());
         msg.setKeyRef(dto.getKeyRef());
+        msg.setSenderDeviceId(dto.getSenderDeviceId());
         msg.setBody(null);
 
         // 5) Persist (tolerate race duplicates)
@@ -536,6 +540,7 @@ public class MessageService {
             e.put("iv", m.getIv());
             e.put("ciphertext", m.getCiphertext());
             e.put("keyRef", m.getKeyRef());
+            e.put("senderDeviceId", m.getSenderDeviceId());
         } else {
             e.put("body", m.getBody());
         }

@@ -19,6 +19,7 @@ public class ChatSendDto {
     private byte[] iv;                  // nonce
     private byte[] ciphertext;          // opaque bytes
     private String keyRef;              // "senderKey:v3" or per-recipient reference
+    private String senderDeviceId;      // sender device identifier for multi-device session lookup
 
     // getters/setters
 
@@ -51,5 +52,8 @@ public class ChatSendDto {
 
     public String getKeyRef() { return keyRef; }
     public void setKeyRef(String keyRef) { this.keyRef = keyRef; }
+    
+    public String getSenderDeviceId() { return senderDeviceId; }
+    public void setSenderDeviceId(String senderDeviceId) { this.senderDeviceId = senderDeviceId; }
 }
 

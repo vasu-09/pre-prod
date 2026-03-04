@@ -30,6 +30,7 @@ public class ChatMessageDto {
     private byte[] iv;
     private byte[] ciphertext;
     private String keyRef;
+    private String senderDeviceId;
 
     private boolean deletedBySender;
     private boolean deletedByReceiver;
@@ -139,6 +140,14 @@ public class ChatMessageDto {
     public void setKeyRef(String keyRef) {
         this.keyRef = keyRef;
     }
+
+    public String getSenderDeviceId() {
+        return senderDeviceId;
+    }
+
+    public void setSenderDeviceId(String senderDeviceId) {
+        this.senderDeviceId = senderDeviceId;
+    }
     public boolean isDeletedBySender() {
         return deletedBySender;
     }
@@ -185,6 +194,7 @@ public class ChatMessageDto {
                 .iv(entity.getIv())
                 .ciphertext(entity.getCiphertext())
                 .keyRef(entity.getKeyRef())
+                .senderDeviceId(entity.getSenderDeviceId())
                 .deletedBySender(entity.isDeletedBySender())
                 .deletedByReceiver(entity.isDeletedByReceiver())
                 .deletedForEveryone(entity.isDeletedForEveryone())
@@ -208,6 +218,7 @@ public class ChatMessageDto {
         this.iv = b.iv;
         this.ciphertext = b.ciphertext;
         this.keyRef = b.keyRef;
+        this.senderDeviceId = b.senderDeviceId;
         this.deletedBySender = b.deletedBySender;
         this.deletedByReceiver = b.deletedByReceiver;
         this.deletedForEveryone = b.deletedForEveryone;
@@ -231,6 +242,7 @@ public class ChatMessageDto {
                 .iv(iv)
                 .ciphertext(ciphertext)
                 .keyRef(keyRef)
+                .senderDeviceId(senderDeviceId)
                 .deletedBySender(deletedBySender)
                 .deletedByReceiver(deletedByReceiver)
                 .deletedForEveryone(deletedForEveryone)
@@ -251,6 +263,7 @@ public class ChatMessageDto {
         private byte[] iv;
         private byte[] ciphertext;
         private String keyRef;
+        private String senderDeviceId;
         private boolean deletedBySender;
         private boolean deletedByReceiver;
         private boolean deletedForEveryone;
@@ -269,6 +282,7 @@ public class ChatMessageDto {
         public Builder iv(byte[] iv) { this.iv = iv; return this; }
         public Builder ciphertext(byte[] ciphertext) { this.ciphertext = ciphertext; return this; }
         public Builder keyRef(String keyRef) { this.keyRef = keyRef; return this; }
+        public Builder senderDeviceId(String senderDeviceId) { this.senderDeviceId = senderDeviceId; return this; }
         public Builder deletedBySender(boolean deletedBySender) { this.deletedBySender = deletedBySender; return this; }
         public Builder deletedByReceiver(boolean deletedByReceiver) { this.deletedByReceiver = deletedByReceiver; return this; }
         public Builder deletedForEveryone(boolean deletedForEveryone) { this.deletedForEveryone = deletedForEveryone; return this; }

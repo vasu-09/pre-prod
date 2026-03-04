@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 @ConditionalOnProperty(name = "rtc.redis.enabled", havingValue = "true")
 public class RedissonConfig {
 
-    @Value("${rtc.redis.url:redis://localhost:6379}")
+    @Value("${rtc.redis.url:redis://redis.moc-preprod.svc.cluster.local:6379}")
     private String redisUrl;
 
     @Bean(destroyMethod = "shutdown")

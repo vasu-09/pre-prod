@@ -14,5 +14,5 @@ public class MessageCreated {
     public String body;
 
     // optional E2EE envelope (opaque)
-    public Short e2eeVer; public String algo; public byte[] aad; public byte[] iv; public byte[] ciphertext; public String keyRef;
+    public Short e2eeVer; public String algo; public byte[] aad; public byte[] iv; public byte[] ciphertext; public String keyRef; public String senderDeviceId;
 }

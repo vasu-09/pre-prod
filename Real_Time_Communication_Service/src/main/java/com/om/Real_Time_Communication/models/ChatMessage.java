@@ -48,7 +48,7 @@ public class ChatMessage {
 
     @Column(name = "algo", length = 16)
     private String algo;                   // "AES-GCM", etc.
-
+        
     @Column(name = "aad", columnDefinition = "bytea")
     private byte[] aad;                    // associated data (optional)
 
@@ -60,6 +60,9 @@ public class ChatMessage {
 
     @Column(name = "key_ref", length = 64)
     private String keyRef;                 // "senderKey:v3" or per-recipient ref
+
+    @Column(name = "sender_device_id", length = 128)
+    private String senderDeviceId;
 
     @Column(name = "deleted_by_sender", nullable = false)
     private boolean deletedBySender = false;
@@ -115,6 +118,9 @@ public class ChatMessage {
     public String getKeyRef() { return keyRef; }
     public void setKeyRef(String keyRef) { this.keyRef = keyRef; }
 
+    public String getSenderDeviceId() { return senderDeviceId; }
+    public void setSenderDeviceId(String senderDeviceId) { this.senderDeviceId = senderDeviceId; }
+    
     public boolean isDeletedBySender() { return deletedBySender; }
     public void setDeletedBySender(boolean deletedBySender) { this.deletedBySender = deletedBySender; }
 

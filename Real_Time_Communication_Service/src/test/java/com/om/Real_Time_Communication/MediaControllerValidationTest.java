@@ -4,6 +4,7 @@ import com.om.Real_Time_Communication.Repository.MediaRepository;
 import com.om.Real_Time_Communication.controller.MediaController;
 import com.om.Real_Time_Communication.service.GcsSigner;
 import com.om.Real_Time_Communication.service.MediaJobs;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,6 +19,7 @@ class MediaControllerValidationTest {
     MediaJobs jobs;
     MediaController controller;
     Principal principal;
+    HttpServletRequest request;
 
     @BeforeEach
     void setup() {
@@ -26,17 +28,18 @@ class MediaControllerValidationTest {
         jobs = mock(MediaJobs.class);
         controller = new MediaController(repo, signer, jobs);
         principal = () -> "1";
+        request = mock(HttpServletRequest.class);
     }
 
     @Test
     void rejectsLargeFiles() {
-        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("image/jpeg", 60L * 1024 * 1024, false);
-        assertThrows(IllegalArgumentException.class, () -> controller.createUpload(principal, req));
+        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("image/jpeg", 60L * 1024 * 1024, false, null);
+        assertThrows(IllegalArgumentException.class, () -> controller.createUpload(principal, request, req));
     }
 
     @Test
     void rejectsUnknownMime() {
-        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("application/zip", 1024L, false);
-        assertThrows(IllegalArgumentException.class, () -> controller.createUpload(principal, req));
+        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("application/zip", 1024L, false, null);
+        assertThrows(IllegalArgumentException.class, () -> controller.createUpload(principal, request, req));
     }
 }

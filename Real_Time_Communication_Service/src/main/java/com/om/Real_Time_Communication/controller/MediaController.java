@@ -3,6 +3,9 @@ package com.om.Real_Time_Communication.controller;
 import com.om.Real_Time_Communication.Repository.MediaRepository;
 import com.om.Real_Time_Communication.dto.*;
 import com.om.Real_Time_Communication.models.Media;
+import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import com.om.Real_Time_Communication.service.GcsSigner;
 import com.om.Real_Time_Communication.service.MediaJobs;
@@ -22,13 +25,20 @@ import java.util.Set;
 @RequestMapping("/api/media")
 @CrossOrigin(origins = "${cors.allowed-origins}")
 public class MediaController {
+    private static final Logger log = LoggerFactory.getLogger(MediaController.class);
     private final MediaRepository repo;
     private final GcsSigner signer;
     private final MediaJobs jobs;
 
     private static final long MAX_SIZE_BYTES = 50L * 1024 * 1024; // 50MB
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
-            "image/jpeg", "image/png", "video/mp4"
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/webp",
+            "image/heic",
+            "image/heif",
+            "video/mp4"
     );
 
     public MediaController(MediaRepository repo, GcsSigner signer, MediaJobs jobs) {
@@ -57,33 +67,41 @@ public class MediaController {
     // 1) Client requests an upload slot
     @PostMapping("/uploads")
     public Map<String,Object> createUpload(Principal principal,
+                                            HttpServletRequest request,
                                            @RequestBody CreateUploadReq req) {
         Long userId = Long.valueOf(principal.getName());
-
-        // Validate
-        if (req.contentType() == null || !ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
-            throw new IllegalArgumentException("unsupported content type");
-        }
-        if (req.sizeBytes() == null || req.sizeBytes() > MAX_SIZE_BYTES) {
-            throw new IllegalArgumentException("file too large");
-        }
-        // TODO: hook in an antivirus/unsafe content scanner here
-
-        String ulid = java.util.UUID.randomUUID().toString().replace("-", "");
-        String object = "uploads/%s/%s/%s-orig".formatted(
-                java.time.LocalDate.now(), userId, ulid);
-
-        Media m = new Media();
-        m.setOwnerUserId(userId);
-        m.setContentType(req.contentType());
-        m.setSizeBytes(req.sizeBytes());
-        m.setGcsBucket(System.getenv("MEDIA_BUCKET"));
-        m.setGcsObject(object);
-        m.setStatus("CREATED");
-        m.setCreatedAt(Instant.now()); m.setUpdatedAt(Instant.now());
-        repo.save(m);
+        Long roomId = req.roomId();
+        log.info("[MEDIA][UPLOAD][REQ] userId={} contentType={} filePresent={} fileName={} size={}",
+                userId,
+                request.getContentType(),
+                false,
+                null,
+                req.sizeBytes());
 
         try {
+            // Validate
+            if (req.contentType() == null || !ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
+                throw new IllegalArgumentException("unsupported content type");
+            }
+            if (req.sizeBytes() == null || req.sizeBytes() > MAX_SIZE_BYTES) {
+                throw new IllegalArgumentException("file too large");
+            }
+            // TODO: hook in an antivirus/unsafe content scanner here
+
+            String ulid = java.util.UUID.randomUUID().toString().replace("-", "");
+            String object = "uploads/%s/%s/%s-orig".formatted(
+                    java.time.LocalDate.now(), userId, ulid);
+
+            Media m = new Media();
+            m.setOwnerUserId(userId);
+            m.setContentType(req.contentType());
+            m.setSizeBytes(req.sizeBytes());
+            m.setGcsBucket(System.getenv("MEDIA_BUCKET"));
+            m.setGcsObject(object);
+            m.setStatus("CREATED");
+            m.setCreatedAt(Instant.now()); m.setUpdatedAt(Instant.now());
+            repo.save(m);
+
             URL putUrl = signer.signPutUrl(object, req.contentType(), req.resumable());
             return Map.of(
                     "mediaId", m.getId(),
@@ -94,12 +112,13 @@ public class MediaController {
                             "x-goog-resumable", req.resumable() ? "start" : null
                     )
             );
-        } catch (RuntimeException e) {
-            m.setStatus("FAILED");
-            m.setUpdatedAt(Instant.now());
-            repo.save(m);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
-                    "Failed to generate signed upload URL", e);
+        } catch (Exception e) {
+            log.error("[MEDIA][UPLOAD][FAIL] userId={} roomId={} fileName={}",
+                    userId,
+                    roomId,
+                    null,
+                    e);
+            throw e;
         }
     }
 
@@ -160,6 +179,6 @@ public class MediaController {
         return Map.of("ok", true);
     }
 
-    public record CreateUploadReq(String contentType, Long sizeBytes, boolean resumable) {}
+    public record CreateUploadReq(String contentType, Long sizeBytes, boolean resumable, Long roomId) {}
 }
 
