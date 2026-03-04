@@ -1,4 +1,3 @@
-
 package com.om.To_Do.List.ecosystem.services;
 
 import com.om.To_Do.List.ecosystem.model.Subscription;
@@ -37,15 +36,18 @@ public class PaymentService {
 
     @Autowired
     private TokenEncryptor tokenEncryptor;
-    @Value("${razorpay.key:}")
+    @Value("${razorpay.api.key:}")
     private String keyId;
-    @Value("${razorpay.secret:}")
+    @Value("${razorpay.api.secret:}")
     private String keySecret;
 
-    @Value("${razorpay.webhookSecret:}") private String webhookSecret;
+    @Value("${razorpay.api.webhookSecret:}") private String webhookSecret;
 
     @Value("${moc.subscription.default-plan-id}")
     private String defaultPlanId;
+
+    @Value("${moc.subscription.total-count:1200}")
+    private int subscriptionTotalCount;
     
     private RazorpayClient client;
 
@@ -103,7 +105,8 @@ public class PaymentService {
             // 3) Build subscription request
             JSONObject req = new JSONObject();
             req.put("plan_id", planId);
-            req.put("customer_notify", 1);
+            req.put("total_count", subscriptionTotalCount);
+            req.put("customer_notify", true);
             req.put("start_at", startAt); // schedule in non-peak window
 
             if (email != null || contact != null) {
@@ -117,6 +120,8 @@ public class PaymentService {
             notes.put("app_user_id", userId.toString());
             req.put("notes", notes);
 
+            System.out.println("[RAZORPAY][SUB_CREATE] totalCount=" + subscriptionTotalCount);
+            System.out.println("[RAZORPAY][SUB_CREATE] payload=" + req.toString());
             // Create subscription (returns com.razorpay.Subscription which extends Entity)
             Entity created = client().subscriptions.create(req);
             String subscriptionId = created.get("id");
