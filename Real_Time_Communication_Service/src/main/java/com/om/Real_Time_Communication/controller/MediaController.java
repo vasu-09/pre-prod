@@ -70,21 +70,28 @@ public class MediaController {
                                             HttpServletRequest request,
                                            @RequestBody CreateUploadReq req) {
         Long userId = Long.valueOf(principal.getName());
-        Long roomId = req.roomId();
+        Long roomId = req != null ? req.roomId() : null;
+        Long requestedSize = req != null ? req.sizeBytes() : null;
         log.info("[MEDIA][UPLOAD][REQ] userId={} contentType={} filePresent={} fileName={} size={}",
                 userId,
                 request.getContentType(),
                 false,
                 null,
-                req.sizeBytes());
+                requestedSize);
 
         try {
             // Validate
-            if (req.contentType() == null || !ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
-                throw new IllegalArgumentException("unsupported content type");
+            if (req == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body required");
             }
-            if (req.sizeBytes() == null || req.sizeBytes() > MAX_SIZE_BYTES) {
-                throw new IllegalArgumentException("file too large");
+            if (req.roomId() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "roomId is required");
+            }
+            if (req.contentType() == null || !ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported content type");
+            }
+            if (req.sizeBytes() == null || req.sizeBytes() <= 0 || req.sizeBytes() > MAX_SIZE_BYTES) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file too large");
             }
             // TODO: hook in an antivirus/unsafe content scanner here
 
@@ -103,15 +110,18 @@ public class MediaController {
             repo.save(m);
 
             URL putUrl = signer.signPutUrl(object, req.contentType(), req.resumable());
-            return Map.of(
-                    "mediaId", m.getId(),
-                    "putUrl", putUrl.toString(),
-                    "resumable", req.resumable(),
-                    "headers", Map.of(
-                            // client MUST set this header to initiate resumable
-                            "x-goog-resumable", req.resumable() ? "start" : null
-                    )
-            );
+             Map<String, Object> headers = new LinkedHashMap<>();
+            if (req.resumable()) {
+                headers.put("x-goog-resumable", "start");
+            }
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("mediaId", m.getId());
+            out.put("putUrl", putUrl.toString());
+            out.put("resumable", req.resumable());
+            out.put("headers", headers);
+
+            return out;
         } catch (Exception e) {
             log.error("[MEDIA][UPLOAD][FAIL] userId={} roomId={} fileName={}",
                     userId,
@@ -181,4 +191,3 @@ public class MediaController {
 
     public record CreateUploadReq(String contentType, Long sizeBytes, boolean resumable, Long roomId) {}
 }
-
