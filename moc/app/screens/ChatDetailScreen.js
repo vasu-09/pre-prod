@@ -1287,43 +1287,55 @@ const makeReplyPayload = useCallback(
     return 'image/jpeg';
   }, []);
 
-  const uploadImageToMediaStore = useCallback(async uri => {
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    const contentType = blob.type || inferMimeType(uri);
-    const intent = await apiClient.post('/api/media/uploads', {
-      contentType,
-      sizeBytes: blob.size,
-      resumable: false,
-    });
-    const { mediaId, putUrl } = intent.data || {};
-    if (!mediaId || !putUrl) {
-      throw new Error('Upload intent missing media details');
-    }
+  const uploadImageToMediaStore = useCallback(async (uri, mimeTypeOverride) => {
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const contentType = blob.type || inferMimeType(uri);
+      const intent = await apiClient.post('/api/media/uploads', {
+        contentType,
+        sizeBytes: blob.size,
+        resumable: false,
+      });
+      const { mediaId, putUrl } = intent.data || {};
+      if (!mediaId || !putUrl) {
+        throw new Error('Upload intent missing media details');
+      }
 
-    const putResponse = await fetch(putUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': contentType },
-      body: blob,
-    });
-    if (!putResponse.ok) {
-      throw new Error(`Upload failed with status ${putResponse.status}`);
-    }
+      const putResponse = await fetch(putUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: blob,
+      });
+      if (!putResponse.ok) {
+        throw new Error(`Upload failed with status ${putResponse.status}`);
+      }
 
     await apiClient.post(`/api/media/${mediaId}/complete`);
-    const urlResponse = await apiClient.get(`/api/media/${mediaId}/urls`);
-    const mediaUrls = urlResponse.data || {};
-    if (!mediaUrls.original) {
-      throw new Error('No media URL returned from backend');
+      const urlResponse = await apiClient.get(`/api/media/${mediaId}/urls`);
+      const mediaUrls = urlResponse.data || {};
+      if (!mediaUrls.original) {
+        throw new Error('No media URL returned from backend');
+      }
+      return {
+        mediaId,
+        url: mediaUrls.original,
+        thumbUrl: mediaUrls.thumb || null,
+        contentType,
+        width: mediaUrls.width || null,
+        height: mediaUrls.height || null,
+      };
+    } catch (error) {
+      console.log('[media upload error]', {
+        status: error?.response?.status,
+        data: error?.response?.data,
+        headers: error?.response?.headers,
+        method: error?.config?.method,
+        baseURL: error?.config?.baseURL,
+        url: error?.config?.url,
+      });
+      throw error;
     }
-    return {
-      mediaId,
-      url: mediaUrls.original,
-      thumbUrl: mediaUrls.thumb || null,
-      contentType,
-      width: mediaUrls.width || null,
-      height: mediaUrls.height || null,
-    };
   }, [inferMimeType]);
 
   useEffect(() => {
@@ -1379,7 +1391,20 @@ const makeReplyPayload = useCallback(
       return;
     }
     const selectedMedia = Array.isArray(parsedPayload?.media)
-      ? parsedPayload.media.filter(Boolean)
+      ? parsedPayload.media
+          .map(item => {
+            if (typeof item === 'string') {
+              return { uri: item };
+            }
+            if (typeof item?.uri === 'string' && item.uri) {
+              return {
+                uri: item.uri,
+                mimeType: typeof item?.mimeType === 'string' ? item.mimeType : undefined,
+              };
+            }
+            return null;
+          })
+          .filter(Boolean)
       : [];
     if (!selectedMedia.length) {
       return;
@@ -1391,8 +1416,8 @@ const makeReplyPayload = useCallback(
     (async () => {
       try {
         const uploadedMedia = [];
-        for (const uri of selectedMedia) {
-          const uploaded = await uploadImageToMediaStore(uri);
+        for (const item of selectedMedia) {
+          const uploaded = await uploadImageToMediaStore(item.uri, item.mimeType);
           uploadedMedia.push(uploaded);
         }
 

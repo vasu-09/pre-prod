@@ -19,6 +19,22 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 const CamType = { back: 'back', front: 'front' };
 const CamFlash = { off: 'off', on: 'on', auto: 'auto', torch: 'torch' };
 
+const normalizeSelectedItem = item => {
+  if (!item) return null;
+  if (typeof item === 'string') {
+    return { uri: item };
+  }
+  if (typeof item?.uri === 'string' && item.uri) {
+    return {
+      uri: item.uri,
+      width: typeof item?.width === 'number' ? item.width : undefined,
+      height: typeof item?.height === 'number' ? item.height : undefined,
+      mimeType: typeof item?.mimeType === 'string' ? item.mimeType : undefined,
+    };
+  }
+  return null;
+};
+
 function CameraScreen() {
   const router = useRouter();
   const { returnTo, chatReturnTo, roomId, roomKey, title, peerId, image, phone } = useLocalSearchParams();
@@ -39,8 +55,10 @@ function CameraScreen() {
   const [loadingRecent, setLoadingRecent] = useState(true);
 
   const onSelect = useCallback(
-  (uris) => {
-      const selected = Array.isArray(uris) ? uris.filter(Boolean) : [uris].filter(Boolean);
+  (items) => {
+      const selected = Array.isArray(items)
+        ? items.map(normalizeSelectedItem).filter(Boolean)
+        : [normalizeSelectedItem(items)].filter(Boolean);
       if (!selected.length) return;
       router.replace({
         pathname: returnTo || '/screens/MediaComposerScreen',
@@ -94,7 +112,7 @@ function CameraScreen() {
         quality: 0.8,
         skipProcessing: true,
       });
-      onSelect(photo.uri);
+      onSelect(photo);
     } catch (e) {
       console.warn('takePictureAsync error', e);
     }
@@ -110,7 +128,7 @@ function CameraScreen() {
         selectionLimit: 10,
       });
       if (!res.canceled) {
-        onSelect((res.assets || []).map(asset => asset?.uri));
+        onSelect(res.assets || []);
       }
     } catch (e) {
       console.warn('ImagePicker error', e);
@@ -203,7 +221,7 @@ function CameraScreen() {
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={styles.thumbBtn}
-                onPress={() => onSelect(item.uri)}
+                onPress={() => onSelect(item)}
               >
                 <Image source={{ uri: item.uri }} style={styles.thumb} />
               </TouchableOpacity>
