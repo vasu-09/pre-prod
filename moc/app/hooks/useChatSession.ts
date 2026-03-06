@@ -1448,6 +1448,7 @@ export const useChatSession = ({
       const messageId = generateMessageId();
       const nowIso = new Date().toISOString();
       let derivedSharedKey = sharedRoomKey;
+      let activeE2eeClient = e2eeClient;
 
       const logEncryptionUnavailable = (reason: string, details?: Record<string, unknown>) => {
         if (SHOULD_LOG_E2EE) {
@@ -1459,6 +1460,18 @@ export const useChatSession = ({
           });
         }
       };
+
+      if (peerId != null && !activeE2eeClient) {
+        try {
+          activeE2eeClient = await getE2EEClient();
+          setE2eeClient(activeE2eeClient);
+        } catch (clientErr) {
+          console.warn('Failed to initialize E2EE client before send', clientErr);
+          logEncryptionUnavailable('e2ee-client-init-failed', {
+            error: clientErr instanceof Error ? clientErr.message : String(clientErr),
+          });
+        }
+      }
 
       if (!peerId && !derivedSharedKey && resolvedRoomKey) {
         try {
@@ -1472,7 +1485,7 @@ export const useChatSession = ({
         }
       }
 
-      if (peerId != null && !e2eeClient) {
+      if (peerId != null && !activeE2eeClient) {
         logEncryptionUnavailable('missing-e2ee-client');
         setError('Unable to send secure message. Please try again.');
         return { success: false as const };
@@ -1485,9 +1498,9 @@ export const useChatSession = ({
       }
 
       let payload: Record<string, unknown> | null = null;
-      if (peerId != null && e2eeClient) {
+      if (peerId != null && activeE2eeClient) {
         try {
-          const encrypted = await e2eeClient.encryptForUser(peerId, messageId, body);
+          const encrypted = await activeE2eeClient.encryptForUser(peerId, messageId, body);
           if (!encrypted) {
             logEncryptionUnavailable('missing-peer-device', { peerId });
             setError('Unable to send secure message. Please try again.');

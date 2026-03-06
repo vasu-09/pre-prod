@@ -1291,7 +1291,23 @@ const makeReplyPayload = useCallback(
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
-      const contentType = mimeTypeOverride || blob.type || inferMimeType(uri);
+      
+      const normalizedOverride =
+        typeof mimeTypeOverride === 'string' && mimeTypeOverride.startsWith('image/')
+          ? mimeTypeOverride
+          : null;
+
+      const normalizedBlobType =
+        typeof blob?.type === 'string' && blob.type.startsWith('image/')
+          ? blob.type
+          : null;
+
+      const contentType =
+        normalizedOverride || inferMimeType(uri) || normalizedBlobType || 'image/jpeg';
+
+      if (!contentType.startsWith('image/')) {
+        throw new Error(`Invalid upload content type resolved: ${contentType}`);
+      }
 
       if (!roomId) {
         throw new Error('Missing roomId for media upload');
@@ -1317,7 +1333,7 @@ const makeReplyPayload = useCallback(
         throw new Error(`Upload failed with status ${putResponse.status}`);
       }
 
-    await apiClient.post(`/api/media/${mediaId}/complete`);
+      await apiClient.post(`/api/media/${mediaId}/complete`);
       const urlResponse = await apiClient.get(`/api/media/${mediaId}/urls`);
       const mediaUrls = urlResponse.data || {};
       if (!mediaUrls.original) {
@@ -1416,7 +1432,6 @@ const makeReplyPayload = useCallback(
       return;
     }
 
-    lastMediaPayloadRef.current = rawPayload;
     navigation.setParams({ mediaPayload: undefined });
 
     (async () => {
@@ -1432,8 +1447,16 @@ const makeReplyPayload = useCallback(
           media: uploadedMedia,
           caption: typeof parsedPayload?.caption === 'string' ? parsedPayload.caption.trim() : '',
         });
-        await sendImageMessage(encryptedMetadata);
+        
+        const sendResult = await sendImageMessage(encryptedMetadata);
+
+        if (!sendResult?.success) {
+          throw new Error('Image metadata send failed');
+        }
+
+        lastMediaPayloadRef.current = rawPayload;
       } catch (err) {
+        lastMediaPayloadRef.current = null;
         console.warn('Send image error:', err);
         Alert.alert('Media upload failed', 'Unable to send one or more images. Please try again.');
       }
