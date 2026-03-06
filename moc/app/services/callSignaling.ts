@@ -14,6 +14,35 @@ export type TurnCredentials = {
   [key: string]: any;
 };
 
+export type CallDescriptionPayload = {
+  type: 'offer' | 'answer';
+  sdp: string;
+  e2ee?: boolean;
+  e2eeVer?: number;
+  algo?: string;
+  keyRef?: string;
+  aad?: number[];
+  iv?: number[];
+  ciphertext?: number[];
+};
+
+export type CallOfferPayload = Omit<CallDescriptionPayload, 'type'> & { type: 'offer' };
+export type CallAnswerPayload = Omit<CallDescriptionPayload, 'type'> & { type: 'answer' };
+
+export type CallCandidatePayload = {
+  candidate: string;
+  sdpMid?: string | null;
+  sdpMLineIndex?: number | null;
+  usernameFragment?: string | null;
+  e2ee?: boolean;
+  e2eeVer?: number;
+  algo?: string;
+  keyRef?: string;
+  aad?: number[];
+  iv?: number[];
+  ciphertext?: number[];
+};
+
 const parseFrame = (frame: StompFrame) => {
   try {
     return frame.body ? JSON.parse(frame.body) : null;
@@ -65,11 +94,17 @@ const callSignaling = {
     }
     return stompClient.publish(`/app/call/ringing/${callId}`, {});
   },
-  answer(callId: number | string | null | undefined, sdp: string) {
+  offer(callId: number | string | null | undefined, payload: CallOfferPayload) {
+    if (!callId) {
+      return Promise.reject(new Error('callId is required to offer call'));
+    }
+    return stompClient.publish(`/app/call/offer/${callId}`, payload);
+  },
+  answer(callId: number | string | null | undefined, payload: CallAnswerPayload) {
     if (!callId) {
       return Promise.reject(new Error('callId is required to answer call'));
     }
-    return stompClient.publish(`/app/call/answer/${callId}`, { sdp });
+    return stompClient.publish(`/app/call/answer/${callId}`, payload);
   },
   decline(callId: number | string | null | undefined) {
     if (!callId) {
@@ -83,11 +118,11 @@ const callSignaling = {
     }
     return stompClient.publish(`/app/call/end/${callId}`, {});
   },
-  candidate(callId: number | string | null | undefined, candidate: string) {
+  candidate(callId: number | string | null | undefined, payload: CallCandidatePayload) {
     if (!callId) {
       return Promise.reject(new Error('callId is required to send candidate'));
     }
-    return stompClient.publish(`/app/call/candidate/${callId}`, { candidate });
+    return stompClient.publish(`/app/call/candidate/${callId}`, payload);
   },
   reinvite(callId: number | string | null | undefined) {
     if (!callId) {
@@ -120,6 +155,20 @@ const callSignaling = {
       return noop;
     }
     return stompClient.subscribe(`/topic/call.${callId}`, frame => {
+      const payload = parseFrame(frame);
+      if (payload) {
+        callback(payload);
+      }
+    });
+  },
+  subscribeBufferedCallQueue(
+    callId: number | string | null | undefined,
+    callback: (event: CallSignalEvent) => void,
+  ) {
+    if (!callId) {
+      return noop;
+    }
+    return stompClient.subscribe(`/user/queue/call.${callId}`, frame => {
       const payload = parseFrame(frame);
       if (payload) {
         callback(payload);

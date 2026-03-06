@@ -1,12 +1,19 @@
 import { useCallback, useEffect } from 'react';
 
-import callSignaling, { CallSignalEvent, TurnCredentials } from '../services/callSignaling';
+import callSignaling, {
+  CallAnswerPayload,
+  CallCandidatePayload,
+  CallOfferPayload,
+  CallSignalEvent,
+  TurnCredentials,
+} from '../services/callSignaling';
 
 export type UseCallSignalingOptions = {
   roomId?: number | null;
   callId?: number | null;
   onRoomEvent?: (event: CallSignalEvent) => void;
   onCallEvent?: (event: CallSignalEvent) => void;
+  onBufferedCallEvent?: (event: CallSignalEvent) => void;
   onQueueEvent?: (event: CallSignalEvent) => void;
   onTurnCredentials?: (credentials: TurnCredentials) => void;
 };
@@ -23,7 +30,15 @@ const ensureNumber = (value: number | string | null | undefined) => {
 };
 
 export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
-  const { roomId, callId, onRoomEvent, onCallEvent, onQueueEvent, onTurnCredentials } = options;
+  const {
+    roomId,
+    callId,
+    onRoomEvent,
+    onCallEvent,
+    onBufferedCallEvent,
+    onQueueEvent,
+    onTurnCredentials,
+  } = options;
 
   useEffect(() => {
     if (!roomId || !onRoomEvent) {
@@ -38,6 +53,13 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
     }
     return callSignaling.subscribeCall(callId, onCallEvent);
   }, [callId, onCallEvent]);
+
+  useEffect(() => {
+    if (!callId || !onBufferedCallEvent) {
+      return;
+    }
+    return callSignaling.subscribeBufferedCallQueue(callId, onBufferedCallEvent);
+  }, [callId, onBufferedCallEvent]);
 
   useEffect(() => {
     if (!onQueueEvent) {
@@ -111,13 +133,24 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
     [callId],
   );
 
-  const answerCall = useCallback(
-    (sdp: string, targetCallId?: number) => {
+  const sendOffer = useCallback(
+    (payload: CallOfferPayload, targetCallId?: number) => {
       const resolved = targetCallId ?? ensureNumber(callId);
       if (!resolved) {
         return Promise.reject(new Error('Call id not available'));
       }
-      return callSignaling.answer(resolved, sdp);
+      return callSignaling.offer(resolved, payload);
+    },
+    [callId],
+  );
+
+  const answerCall = useCallback(
+    (payload: CallAnswerPayload, targetCallId?: number) => {
+      const resolved = targetCallId ?? ensureNumber(callId);
+      if (!resolved) {
+        return Promise.reject(new Error('Call id not available'));
+      }
+      return callSignaling.answer(resolved, payload);
     },
     [callId],
   );
@@ -145,12 +178,12 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
   );
 
   const sendCandidate = useCallback(
-    (candidate: string, targetCallId?: number) => {
+    (payload: CallCandidatePayload, targetCallId?: number) => {
       const resolved = targetCallId ?? ensureNumber(callId);
       if (!resolved) {
         return Promise.reject(new Error('Call id not available'));
       }
-      return callSignaling.candidate(resolved, candidate);
+      return callSignaling.candidate(resolved, payload);
     },
     [callId],
   );
@@ -183,6 +216,7 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
     joinCall,
     leaveCall,
     markRinging,
+    sendOffer,
     answerCall,
     declineCall,
     endCall,
