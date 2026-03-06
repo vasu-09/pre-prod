@@ -84,6 +84,42 @@ const formatDayLabel = iso => {
   return d.toLocaleDateString(undefined, { day: '2-digit', month: 'long', year: 'numeric' });
 };
 
+const inferFileNameFromUri = uri => {
+  if (!uri || typeof uri !== 'string') return null;
+  const clean = uri.split('?')[0];
+  const parts = clean.split('/');
+  const last = parts[parts.length - 1];
+  return last && last.trim() ? decodeURIComponent(last) : null;
+};
+
+const inferMimeFromName = name => {
+  const lower = String(name || '').toLowerCase();
+
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.doc')) return 'application/msword';
+  if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (lower.endsWith('.xls')) return 'application/vnd.ms-excel';
+  if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  if (lower.endsWith('.ppt')) return 'application/vnd.ms-powerpoint';
+  if (lower.endsWith('.pptx')) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (lower.endsWith('.txt')) return 'text/plain';
+  if (lower.endsWith('.csv')) return 'text/csv';
+  if (lower.endsWith('.zip')) return 'application/zip';
+
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  if (lower.endsWith('.heic') || lower.endsWith('.heif')) return 'image/heic';
+
+  if (lower.endsWith('.mp4')) return 'video/mp4';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.mkv')) return 'video/x-matroska';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.3gp')) return 'video/3gpp';
+
+  return null;
+};
+
 export const formatDurationText = millis => {
   const totalSeconds = Math.max(0, Math.floor((millis || 0) / 1000));
   const minutes = Math.floor(totalSeconds / 60);
@@ -1372,21 +1408,59 @@ const makeReplyPayload = useCallback(
       const response = await fetch(uri);
       const blob = await response.blob();
 
+      const resolvedFileName =
+        fileName ||
+        inferFileNameFromUri(uri) ||
+        `attachment-${Date.now()}`;
+
+      const safeMimeFromArg =
+        typeof mimeType === 'string' && mimeType.trim() && mimeType !== 'application/json'
+          ? mimeType.trim()
+          : null;
+
+      const safeMimeFromName = inferMimeFromName(resolvedFileName);
+
+      const safeMimeFromBlob =
+        typeof blob?.type === 'string' &&
+        blob.type.trim() &&
+        blob.type !== 'application/json'
+          ? blob.type.trim()
+          : null;
+
       const contentType =
-        (typeof mimeType === 'string' && mimeType.trim()) ||
-        (typeof blob?.type === 'string' && blob.type.trim()) ||
+        safeMimeFromArg ||
+        safeMimeFromName ||
+        safeMimeFromBlob ||
         'application/octet-stream';
 
       if (!roomId) {
         throw new Error('Missing roomId for media upload');
       }
 
+      if (!resolvedFileName) {
+        throw new Error('Unable to determine attachment file name');
+      }
+
+      const resolvedSize =
+        typeof sizeBytes === 'number' && Number.isFinite(sizeBytes) && sizeBytes > 0
+          ? sizeBytes
+          : blob.size;
+
+      console.log('[upload intent payload]', {
+        uri,
+        resolvedFileName,
+        incomingMimeType: mimeType,
+        blobType: blob?.type,
+        finalContentType: contentType,
+        resolvedSize,
+      });
+
       const intent = await apiClient.post('/api/media/uploads', {
         roomId,
         contentType,
-        sizeBytes: sizeBytes ?? blob.size,
+        sizeBytes: resolvedSize,
         resumable: false,
-        fileName,
+        fileName: resolvedFileName,
       });
 
       const { mediaId, putUrl } = intent.data || {};
@@ -1410,15 +1484,18 @@ const makeReplyPayload = useCallback(
           const thumbResponse = await fetch(thumbUri);
           const thumbBlob = await thumbResponse.blob();
           const thumbType =
-            (typeof thumbBlob?.type === 'string' && thumbBlob.type.trim()) ||
-            'image/jpeg';
+            (typeof thumbBlob?.type === 'string' && thumbBlob.type.trim() && thumbBlob.type !== 'application/json'
+              ? thumbBlob.type.trim()
+              : null) || 'image/jpeg';
+              
           const thumbIntent = await apiClient.post('/api/media/uploads', {
             roomId,
             contentType: thumbType,
             sizeBytes: thumbBlob.size,
             resumable: false,
-            fileName: fileName ? `thumb-${fileName}` : 'thumbnail.jpg',
+            fileName: `thumb-${resolvedFileName}.jpg`,
           });
+
           const { mediaId: thumbMediaId, putUrl: thumbPutUrl } = thumbIntent.data || {};
           if (thumbMediaId && thumbPutUrl) {
             const thumbPutResponse = await fetch(thumbPutUrl, {
@@ -1426,6 +1503,7 @@ const makeReplyPayload = useCallback(
               headers: { 'Content-Type': thumbType },
               body: thumbBlob,
             });
+
             if (thumbPutResponse.ok) {
               await apiClient.post(`/api/media/${thumbMediaId}/complete`);
               const thumbUrlResponse = await apiClient.get(`/api/media/${thumbMediaId}/urls`);
@@ -1451,8 +1529,8 @@ const makeReplyPayload = useCallback(
         url: mediaUrls.original,
         thumbUrl: mediaUrls.thumb || uploadedThumb || null,
         contentType,
-        fileName,
-        sizeBytes: sizeBytes ?? blob.size,
+        fileName: resolvedFileName,
+        sizeBytes: resolvedSize,
         width: mediaUrls.width || null,
         height: mediaUrls.height || null,
         durationMs: mediaUrls.durationMs || null,

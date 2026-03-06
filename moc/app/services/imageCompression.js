@@ -6,6 +6,43 @@ const MAX_LONG_EDGE = 1600;
 const STANDARD_QUALITY = 0.78;
 const SKIP_RECOMPRESS_MAX_BYTES = 300 * 1024;
 
+const inferFileNameFromUri = uri => {
+  if (!uri || typeof uri !== 'string') return null;
+  const clean = uri.split('?')[0];
+  const parts = clean.split('/');
+  const last = parts[parts.length - 1];
+  return last && last.trim() ? decodeURIComponent(last) : null;
+};
+
+const inferMimeFromName = name => {
+  const lower = String(name || '').toLowerCase();
+
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.doc')) return 'application/msword';
+  if (lower.endsWith('.docx')) {
+    return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  }
+  if (lower.endsWith('.xls')) return 'application/vnd.ms-excel';
+  if (lower.endsWith('.xlsx')) {
+    return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  }
+  if (lower.endsWith('.ppt')) return 'application/vnd.ms-powerpoint';
+  if (lower.endsWith('.pptx')) {
+    return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  }
+  if (lower.endsWith('.txt')) return 'text/plain';
+  if (lower.endsWith('.csv')) return 'text/csv';
+  if (lower.endsWith('.zip')) return 'application/zip';
+
+  if (lower.endsWith('.mp4')) return 'video/mp4';
+  if (lower.endsWith('.mov')) return 'video/quicktime';
+  if (lower.endsWith('.mkv')) return 'video/x-matroska';
+  if (lower.endsWith('.webm')) return 'video/webm';
+  if (lower.endsWith('.3gp')) return 'video/3gpp';
+
+  return null;
+};
+
 export const getFileSizeSafe = async uri => {
   if (!uri) return null;
   try {
@@ -20,11 +57,24 @@ export const prepareDocumentForChat = async asset => {
   const uri = asset?.uri;
   if (!uri) throw new Error('Missing document uri');
 
+  const fileName =
+    asset?.name ||
+    asset?.fileName ||
+    inferFileNameFromUri(uri) ||
+    `document-${Date.now()}`;
+
+  const mimeType =
+    (typeof asset?.mimeType === 'string' && asset.mimeType.trim() && asset.mimeType !== 'application/json'
+      ? asset.mimeType
+      : null) ||
+    inferMimeFromName(fileName) ||
+    'application/octet-stream';
+
   return {
     uri,
     mimeType: asset?.mimeType || 'application/octet-stream',
-    fileName: asset?.name || asset?.fileName || 'document',
-    sizeBytes: await getFileSizeSafe(uri),
+    mimeType,
+    fileName,
     wasCompressed: false,
   };
 };
@@ -42,10 +92,23 @@ export const prepareVideoForChat = async asset => {
     thumbUri = null;
   }
 
+  const fileName =
+    asset?.name ||
+    asset?.fileName ||
+    inferFileNameFromUri(uri) ||
+    `video-${Date.now()}.mp4`;
+
+  const mimeType =
+    (typeof asset?.mimeType === 'string' && asset.mimeType.trim() && asset.mimeType !== 'application/json'
+      ? asset.mimeType
+      : null) ||
+    inferMimeFromName(fileName) ||
+    'video/mp4';
+
   return {
     uri,
-    mimeType: asset?.mimeType || 'video/mp4',
-    fileName: asset?.name || asset?.fileName || 'video.mp4',
+    mimeType,
+    fileName,
     sizeBytes: await getFileSizeSafe(uri),
     thumbUri,
     wasCompressed: false,
