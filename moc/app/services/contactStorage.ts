@@ -76,7 +76,10 @@ export const persistContactsToDb = async (
       id: contactId,
       name: contact.name ?? indexed?.name ?? 'Unknown contact',
       phoneNumbers,
-      imageUri: contact.imageAvailable ? contact?.image?.uri ?? null : indexed?.imageUri ?? null,
+      imageUri:
+        contact.imageAvailable
+          ? contact?.image?.uri ?? null
+          : match?.avatarUrl ?? indexed?.imageUri ?? null,
       matchPhone: match?.phone ?? null,
       matchUserId: match?.userId ?? null,
       updatedAt: new Date().toISOString(),

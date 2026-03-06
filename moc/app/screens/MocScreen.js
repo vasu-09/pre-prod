@@ -124,6 +124,7 @@ const MocScreen = () => {
             title: roomTitle,
             peerId: String(participantId),
             phone: contact?.matchPhone ?? contact?.phoneNumbers?.[0]?.number ?? '',
+            image: roomAvatar ?? undefined,
             },
           });
       } catch (err) {
@@ -349,6 +350,7 @@ const MocScreen = () => {
                         title: room.title,
                         peerId: room.peerId != null ? String(room.peerId) : undefined,
                         phone: room.peerPhone ?? undefined,
+                        image: room.avatar ?? undefined,
                       },
                     })
                   }

@@ -6,6 +6,7 @@ import { normalizeIndianPhoneNumber } from './phoneNumber';
 export interface ContactMatch {
   userId: number;
   phone: string;
+  avatarUrl?: string | null;
 }
 
 export interface ContactDetails {
