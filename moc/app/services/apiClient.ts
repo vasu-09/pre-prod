@@ -532,6 +532,19 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
+
+apiClient.interceptors.request.use((config) => {
+  if (config.url?.includes('/api/media/uploads')) {
+    console.log('[AXIOS FINAL REQUEST]', {
+      url: config.url,
+      method: config.method,
+      headers: config.headers,
+      data: config.data,
+    });
+  }
+  return config;
+});
+
 apiClient.interceptors.request.use(async (config) => {
   try {
     const token = await getAccessToken();

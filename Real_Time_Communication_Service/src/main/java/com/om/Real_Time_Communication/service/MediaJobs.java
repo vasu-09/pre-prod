@@ -4,6 +4,7 @@ import com.om.Real_Time_Communication.config.MediaQueueConfig;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.Map;
 
 @Service
@@ -17,8 +18,11 @@ public class MediaJobs {
         if (mediaId == null) {
             throw new IllegalArgumentException("mediaId is required");
         }
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("mediaId", mediaId);
+
         rabbit.convertAndSend(MediaQueueConfig.EXCHANGE,
                 MediaQueueConfig.ROUTING_KEY_PROCESS,
-                Map.of("mediaId", mediaId));
+                payload);
     }
 }

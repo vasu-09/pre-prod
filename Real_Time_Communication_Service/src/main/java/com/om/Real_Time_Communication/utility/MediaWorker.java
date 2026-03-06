@@ -38,7 +38,10 @@ public class MediaWorker {
 
     @Value("${media.bucket}") private String bucket;
 
-    @RabbitListener(queues = MediaQueueConfig.QUEUE_PROCESS)
+    @RabbitListener(
+            queues = MediaQueueConfig.QUEUE_PROCESS,
+            containerFactory = "jsonRabbitListenerContainerFactory"
+    )
     @Transactional
     public void onProcess(Map<String,Object> msg)  {
         if (msg == null || msg.get("mediaId") == null) {

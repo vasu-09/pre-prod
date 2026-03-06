@@ -72,9 +72,9 @@ export const prepareDocumentForChat = async asset => {
 
   return {
     uri,
-    mimeType: asset?.mimeType || 'application/octet-stream',
     mimeType,
     fileName,
+    sizeBytes: await getFileSizeSafe(uri),
     wasCompressed: false,
   };
 };

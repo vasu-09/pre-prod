@@ -87,14 +87,25 @@ public class MediaController {
             if (req.roomId() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "roomId is required");
             }
-            if (req.contentType() == null || !ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
+            if (req.contentType() == null || req.contentType().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "contentType is required");
+            }
+            if (!ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported content type");
             }
-            if (req.sizeBytes() == null || req.sizeBytes() <= 0 || req.sizeBytes() > MAX_SIZE_BYTES) {
+            if (req.sizeBytes() == null || req.sizeBytes() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sizeBytes must be > 0");
+            }
+            if (req.sizeBytes() > MAX_SIZE_BYTES) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "file too large");
             }
             // TODO: hook in an antivirus/unsafe content scanner here
 
+            String mediaBucket = System.getenv("MEDIA_BUCKET");
+            if (mediaBucket == null || mediaBucket.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "MEDIA_BUCKET is not configured");
+            }
+            
             String ulid = java.util.UUID.randomUUID().toString().replace("-", "");
             String object = "uploads/%s/%s/%s-orig".formatted(
                     java.time.LocalDate.now(), userId, ulid);
@@ -103,14 +114,14 @@ public class MediaController {
             m.setOwnerUserId(userId);
             m.setContentType(req.contentType());
             m.setSizeBytes(req.sizeBytes());
-            m.setGcsBucket(System.getenv("MEDIA_BUCKET"));
+            m.setGcsBucket(mediaBucket);
             m.setGcsObject(object);
             m.setStatus("CREATED");
             m.setCreatedAt(Instant.now()); m.setUpdatedAt(Instant.now());
             repo.save(m);
 
             URL putUrl = signer.signPutUrl(object, req.contentType(), req.resumable());
-             Map<String, Object> headers = new LinkedHashMap<>();
+            Map<String, Object> headers = new LinkedHashMap<>();
             if (req.resumable()) {
                 headers.put("x-goog-resumable", "start");
             }
@@ -191,3 +202,4 @@ public class MediaController {
 
     public record CreateUploadReq(String contentType, Long sizeBytes, boolean resumable, Long roomId) {}
 }
+

@@ -1,8 +1,18 @@
 package com.om.Real_Time_Communication.config;
 
-import org.springframework.amqp.core.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.amqp.core.Binding;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.ExchangeBuilder;
+import org.springframework.amqp.core.Queue;
+import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
+import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
+import org.springframework.amqp.support.converter.MessageConverter;
+import org.springframework.boot.autoconfigure.amqp.SimpleRabbitListenerContainerFactoryConfigurer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -16,7 +26,7 @@ public class RabbitConfig {
     public static final String Q_READMODEL_MSG_CREATED = "rtc.readmodel.message.created";
 
     // Optional DLQ & retry queue (recommended)
-    public static final String Q_READMODEL_MSG_CREATED_DLQ   = "rtc.readmodel.message.created.dlq";
+    public static final String Q_READMODEL_MSG_CREATED_DLQ = "rtc.readmodel.message.created.dlq";
     public static final String Q_READMODEL_MSG_CREATED_RETRY = "rtc.readmodel.message.created.retry";
 
     // Routing keys
@@ -69,11 +79,29 @@ public class RabbitConfig {
     ----------------------------------------------------------------------- */
 
     @Bean
-    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory) {
+    public MessageConverter rabbitMessageConverter(ObjectMapper objectMapper) {
+        return new Jackson2JsonMessageConverter(objectMapper);
+    }
+
+    @Bean
+    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory,
+                                         MessageConverter rabbitMessageConverter) {
         RabbitTemplate tpl = new RabbitTemplate(connectionFactory);
         // Ensure unroutable messages are returned (helps detect mis-binds)
         tpl.setMandatory(true);
+        tpl.setMessageConverter(rabbitMessageConverter);
         return tpl;
+    }
+
+    @Bean(name = "jsonRabbitListenerContainerFactory")
+    public SimpleRabbitListenerContainerFactory jsonRabbitListenerContainerFactory(
+            SimpleRabbitListenerContainerFactoryConfigurer configurer,
+            ConnectionFactory connectionFactory,
+            MessageConverter rabbitMessageConverter) {
+        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
+        configurer.configure(factory, connectionFactory);
+        factory.setMessageConverter(rabbitMessageConverter);
+        return factory;
     }
 }
 

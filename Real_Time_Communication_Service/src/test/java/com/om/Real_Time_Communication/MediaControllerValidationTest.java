@@ -7,6 +7,7 @@ import com.om.Real_Time_Communication.service.MediaJobs;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.security.Principal;
 
@@ -33,13 +34,13 @@ class MediaControllerValidationTest {
 
     @Test
     void rejectsLargeFiles() {
-        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("image/jpeg", 60L * 1024 * 1024, false, null);
-        assertThrows(IllegalArgumentException.class, () -> controller.createUpload(principal, request, req));
+        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("image/jpeg", 60L * 1024 * 1024, false, 1L);
+        assertThrows(ResponseStatusException.class, () -> controller.createUpload(principal, request, req));
     }
 
     @Test
     void rejectsUnknownMime() {
-        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("application/zip", 1024L, false, null);
-        assertThrows(IllegalArgumentException.class, () -> controller.createUpload(principal, request, req));
+        MediaController.CreateUploadReq req = new MediaController.CreateUploadReq("application/zip", 1024L, false, 1L);
+        assertThrows(ResponseStatusException.class, () -> controller.createUpload(principal, request, req));
     }
 }

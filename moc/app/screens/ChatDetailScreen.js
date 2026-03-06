@@ -1455,12 +1455,18 @@ const makeReplyPayload = useCallback(
         resolvedSize,
       });
 
-      const intent = await apiClient.post('/api/media/uploads', {
+       const intentBody = {
         roomId,
         contentType,
         sizeBytes: resolvedSize,
         resumable: false,
         fileName: resolvedFileName,
+      };
+
+      console.log('[UPLOAD BODY BEFORE AXIOS]', JSON.stringify(intentBody));
+
+      const intent = await apiClient.post('/api/media/uploads', intentBody, {
+        headers: { 'Content-Type': 'application/json' },
       });
 
       const { mediaId, putUrl } = intent.data || {};
@@ -1487,7 +1493,7 @@ const makeReplyPayload = useCallback(
             (typeof thumbBlob?.type === 'string' && thumbBlob.type.trim() && thumbBlob.type !== 'application/json'
               ? thumbBlob.type.trim()
               : null) || 'image/jpeg';
-              
+
           const thumbIntent = await apiClient.post('/api/media/uploads', {
             roomId,
             contentType: thumbType,
