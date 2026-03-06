@@ -126,8 +126,19 @@ public class CallSignalController {
     // 5) Ringing ack — /app/call.ringing.{callId}
     @MessageMapping("/call/ringing/{callId}")
     public void ringing(@DestinationVariable Long callId, Principal principal) {
-        calls.markRinging(callId, Long.valueOf(principal.getName()));
+        Long userId = Long.valueOf(principal.getName());
+        calls.markRinging(callId, userId);
         broker.convertAndSend("/topic/call."+callId, CallEvents.ringing(callId, principal.getName()));
+        broker.convertAndSendToUser(principal.getName(), "/queue/turn", turnCreds.issue(userId, 300));
+    }
+
+    // 6) Offer — /app/call.offer.{callId}
+    @MessageMapping("/call/offer/{callId}")
+    public void offer(@DestinationVariable Long callId,
+                      @Payload SdpDto dto, Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        calls.renegotiate(callId, userId);
+        broker.convertAndSend("/topic/call."+callId, CallEvents.offer(callId, userId, dto));
     }
 
     // 6) Answer — /app/call.answer.{callId}
@@ -207,6 +218,15 @@ public class CallSignalController {
             return m;
         }
 
+        static java.util.Map<String, Object> offer(Long id, Long by, SdpDto dto) {
+            var m = new java.util.HashMap<String, Object>();
+            m.put("type", "call.offer");
+            m.put("callId", id);
+            m.put("by", by);
+            applyEnvelope(m, dto, "sdp", dto == null ? null : dto.getSdp());
+            return m;
+        }
+
         static java.util.Map<String, Object> answered(Long id, Long by, SdpDto dto) {
             var m = new java.util.HashMap<String, Object>();
             m.put("type", "call.answer");
@@ -239,6 +259,11 @@ public class CallSignalController {
             m.put("callId", id);
             m.put("by", by);
             applyEnvelope(m, dto, "candidate", dto == null ? null : dto.getCandidate());
+            if (dto != null) {
+                if (dto.getSdpMid() != null) m.put("sdpMid", dto.getSdpMid());
+                if (dto.getSdpMLineIndex() != null) m.put("sdpMLineIndex", dto.getSdpMLineIndex());
+                if (dto.getUsernameFragment() != null) m.put("usernameFragment", dto.getUsernameFragment());
+            }
             return m;
         }
 

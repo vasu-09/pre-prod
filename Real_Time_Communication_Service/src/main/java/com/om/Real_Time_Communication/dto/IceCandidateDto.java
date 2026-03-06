@@ -3,6 +3,9 @@ package com.om.Real_Time_Communication.dto;
 public class IceCandidateDto {
     private String candidate;
     private boolean e2ee;
+    private String sdpMid;
+    private Integer sdpMLineIndex;
+    private String usernameFragment;
     private Short e2eeVer;
     private String algo;
     private byte[] aad;
@@ -18,6 +21,30 @@ public class IceCandidateDto {
         this.candidate = candidate;
     }
 
+    public String getSdpMid() {
+        return sdpMid;
+    }
+
+    public void setSdpMid(String sdpMid) {
+        this.sdpMid = sdpMid;
+    }
+
+    public Integer getSdpMLineIndex() {
+        return sdpMLineIndex;
+    }
+
+    public void setSdpMLineIndex(Integer sdpMLineIndex) {
+        this.sdpMLineIndex = sdpMLineIndex;
+    }
+
+    public String getUsernameFragment() {
+        return usernameFragment;
+    }
+
+    public void setUsernameFragment(String usernameFragment) {
+        this.usernameFragment = usernameFragment;
+    }
+    
     public boolean isE2ee() {
         return e2ee;
     }

@@ -79,6 +79,9 @@ public class CallSignalIntegrityService {
         }
         IceCandidateDto copy = new IceCandidateDto();
         copy.setCandidate(src.getCandidate());
+        copy.setSdpMid(src.getSdpMid());
+        copy.setSdpMLineIndex(src.getSdpMLineIndex());
+        copy.setUsernameFragment(src.getUsernameFragment());
         copy.setE2ee(src.isE2ee());
         copy.setE2eeVer(src.getE2eeVer());
         copy.setAlgo(src.getAlgo());
