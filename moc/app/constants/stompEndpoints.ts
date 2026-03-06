@@ -12,6 +12,9 @@ export const sendInboxAck = '/app/inbox/ack';
 export const sendRoomMessage = (roomKey: string | number) => `/app/rooms/${roomKey}/send`;
 export const sendRoomTyping = (roomId: string | number) => `/app/room/${roomId}/typing`;
 export const sendRoomRead = (roomId: string | number) => `/app/room/${roomId}/read`;
+export const sendRoomEnter = (roomId: string | number) => `/app/room/${roomId}/enter`;
+export const sendRoomLeave = (roomId: string | number) => `/app/room/${roomId}/leave`;
+export const sendRoomPing = (roomId: string | number) => `/app/room/${roomId}/ping`;
 export const sendDirectTyping = (userId: string | number) => `/app/dm/${userId}/typing`;
 export const sendDirectRead = (userId: string | number) => `/app/dm/${userId}/read`;
 export const sendDeleteForMe = (messageId: string | number) =>

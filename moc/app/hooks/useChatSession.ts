@@ -10,7 +10,10 @@ import {
   sendDirectRead,
   sendDirectTyping,
   sendInboxAck,
+  sendRoomEnter,
+  sendRoomLeave,
   sendRoomMessage,
+  sendRoomPing,
   sendRoomRead,
   sendRoomTyping,
 } from '../constants/stompEndpoints';
@@ -202,12 +205,14 @@ export const useChatSession = ({
   peerId,
   title,
   disableSubscriptions = false,
+  isActive = false,
 }: {
   roomId: number | null;
   roomKey: string | null;
   peerId?: number | null;
   title?: string | null;
   disableSubscriptions?: boolean;
+  isActive?: boolean;
 }) => {
   const { upsertRoom, updateRoomActivity, incrementUnread, resetUnread } = useChatRegistry();
   const [rawMessages, setRawMessages] = useState<InternalMessage[]>([]);
@@ -228,6 +233,9 @@ export const useChatSession = ({
   const typingSentRef = useRef(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionsRef = useRef<(() => void)[]>([]);
+  const deviceIdRef = useRef<string>(
+    globalThis.crypto?.randomUUID?.() ?? `mobile-${Date.now()}`,
+  );
 
   const toDbRecord = useCallback(
     (
@@ -752,17 +760,18 @@ export const useChatSession = ({
   }, [loadHistory, userLoaded, peerId, e2eeReady, roomId, resolvedRoomKey]);
 
   useEffect(() => {
-    if (!roomId || disableSubscriptions) {
+    if (!roomId || disableSubscriptions || !isActive) {
       return;
     }
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    const deviceId = deviceIdRef.current;
 
     const sendPing = () =>
       stompClient
-        .publish(`/app/room/${roomId}/ping`, {
-          deviceId: 'mobile',
+        .publish(sendRoomPing(roomId), {
+          deviceId
         })
         .catch(err => {
           console.warn('Failed to send presence ping', err);
@@ -770,15 +779,20 @@ export const useChatSession = ({
 
     stompClient
       .ensureConnected()
-      .then(() => {
+      .then(async () => {
         if (cancelled) {
           return;
         }
+
+        await stompClient.publish(sendRoomEnter(roomId), { deviceId }).catch(err => {
+          console.warn('Failed to send room enter', err);
+        });
+
         sendPing();
         timer = setInterval(sendPing, 15000);
       })
       .catch(err => {
-        console.warn('Unable to establish STOMP connection for pings', err);
+        console.warn('Unable to establish STOMP connection for room presence', err);
       });
 
     return () => {
@@ -786,8 +800,15 @@ export const useChatSession = ({
       if (timer) {
         clearInterval(timer);
       }
+      stompClient
+        .publish(sendRoomLeave(roomId), {
+          deviceId,
+        })
+        .catch(err => {
+          console.warn('Failed to send room leave', err);
+        });
     };
-  }, [disableSubscriptions, roomId]);
+  }, [disableSubscriptions, isActive, roomId]);
 
   const sendInboxDeliveryAck = useCallback(
     (messageId: string | null | undefined, status: 'DELIVERED' | 'READ') => {
@@ -1378,12 +1399,12 @@ export const useChatSession = ({
 
   const sendTypingUpdate = useCallback(
     (isTyping: boolean) => {
-      if (!roomId) {
+      if (!roomId || !isActive) {
         return;
       }
       stompClient.publish(sendRoomTyping(roomId), {
         typing: isTyping,
-        deviceId: 'mobile',
+        deviceId: deviceIdRef.current,
       });
       if (peerId != null) {
         stompClient.publish(sendDirectTyping(peerId), {
@@ -1392,12 +1413,12 @@ export const useChatSession = ({
         });
       }
     },
-    [roomId, peerId],
+    [isActive, peerId, roomId],
   );
 
   const notifyTyping = useCallback(
     (isTyping: boolean) => {
-      if (!roomId) {
+      if (!roomId || !isActive) {
         return;
       }
 
@@ -1422,7 +1443,7 @@ export const useChatSession = ({
         sendTypingUpdate(false);
       }
     },
-    [roomId, sendTypingUpdate],
+    [isActive, roomId, sendTypingUpdate],
   );
 
   const sendEncryptedMessage = useCallback(
@@ -1655,7 +1676,7 @@ export const useChatSession = ({
   );
 
   const markLatestRead = useCallback(async () => {
-    if (!roomId || !resolvedRoomKey) {
+    if (!roomId || !resolvedRoomKey || !isActive) {
       return;
     }
     const lastMessageId = latestMessageIdRef.current;
@@ -1678,7 +1699,7 @@ export const useChatSession = ({
     } catch (err) {
       console.warn('Failed to mark messages as read', err);
     }
-  }, [roomId, resolvedRoomKey, resetUnread, peerId, sendInboxDeliveryAck]);
+ }, [isActive, roomId, resolvedRoomKey, resetUnread, peerId, sendInboxDeliveryAck]);
 
   const typingUsers = useMemo(
     () =>

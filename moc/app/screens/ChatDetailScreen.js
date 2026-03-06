@@ -1,5 +1,5 @@
 // ChatDetailScreen.js
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute } from '@react-navigation/native';
 import { Audio } from 'expo-audio';
 import * as Clipboard from 'expo-clipboard';
 import Constants from 'expo-constants';
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  AppState,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -703,6 +704,8 @@ export default function ChatDetailScreen() {
   const activeCallIdRef = useRef(null);
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
   const router = useRouter();
+  const isFocused = useIsFocused();
+  const [appState, setAppState] = useState(AppState.currentState);
   const navigation = useNavigation();
   const route = useRoute();
   const { rooms } = useChatRegistry();
@@ -725,6 +728,7 @@ export default function ChatDetailScreen() {
     );
   }, [rooms, paramRoomId, paramRoomKey]);
   const roomId = paramRoomId ?? roomSummary?.id ?? null;
+  const isChatActive = Boolean(roomId) && isFocused && appState === 'active';
   const roomKey = paramRoomKey ?? roomSummary?.roomKey ?? null;
   const chatTitle = paramTitle ?? roomSummary?.title ?? 'Chat';
   const peerId = paramPeerId ?? roomSummary?.peerId ?? null;
@@ -747,7 +751,13 @@ export default function ChatDetailScreen() {
     error: historyError,
     currentUserId,
     retryDecryptMessage
-  } = useChatSession({ roomId, roomKey, peerId, title: chatTitle });
+   } = useChatSession({
+    roomId,
+    roomKey,
+    peerId,
+    title: chatTitle,
+    isActive: isChatActive,
+  });
 
   const [sharedLists, setSharedLists] = useState([]);
   const [sharedListsLoading, setSharedListsLoading] = useState(false);
@@ -818,6 +828,13 @@ export default function ChatDetailScreen() {
 
   useEffect(() => () => {
     activeCallIdRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      setAppState(nextState);
+    });
+    return () => sub.remove();
   }, []);
 
   const [localMessages, setLocalMessages] = useState([]);
@@ -1379,21 +1396,26 @@ const makeReplyPayload = useCallback(
   }, [messages]);
 
   useEffect(() => {
+    if (!isChatActive) {
+      notifyTyping(false);
+      return;
+    }
+
     notifyTyping(Boolean(input.trim()));
     return () => {
       notifyTyping(false);
     };
-  }, [input, notifyTyping]);
+  }, [input, isChatActive, notifyTyping]);
 
   useEffect(() => {
-    if (!messages.length) {
+    if (!isChatActive || !messages.length) {
       return;
     }
     const last = messages[messages.length - 1];
     if (last?.sender === 'other') {
       markLatestRead();
     }
-  }, [messages, markLatestRead]);
+  }, [isChatActive, markLatestRead, messages]);
 
 
 
