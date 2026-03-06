@@ -61,6 +61,9 @@ jest.mock('../../hooks/useChatSession', () => ({
   useChatSession: jest.fn(() => ({
     messages: [],
     sendTextMessage: jest.fn(),
+    sendImageMessage: jest.fn(),
+    sendVideoMessage: jest.fn(),
+    sendFileMessage: jest.fn(),
     notifyTyping: jest.fn(),
     markLatestRead: jest.fn(),
     typingUsers: [],
@@ -184,5 +187,46 @@ describe('MessageContent', () => {
 
     await waitFor(() => expect(getByText('Waiting for this message. This may take a while.')).toBeTruthy());
     expect(getByText('Learn more')).toBeTruthy();
+  });
+  it('renders document payload metadata', () => {
+    const message = {
+      id: 'm4',
+      messageId: 'm4',
+      roomId: 1,
+      senderId: 42,
+      sender: 'other' as const,
+      text: JSON.stringify({
+        type: 'document',
+        media: {
+          url: 'https://example.com/invoice.pdf',
+          fileName: 'invoice.pdf',
+          contentType: 'application/pdf',
+          sizeBytes: 328192,
+        },
+      }),
+      time: '11:10',
+      pending: false,
+      failed: false,
+      raw: {
+        messageId: 'm4',
+        roomId: 1,
+        senderId: 42,
+        type: 'FILE',
+        body: 'payload',
+        decryptionFailed: false,
+      },
+    };
+
+    const { getByText } = render(
+      <MessageContent
+        item={message}
+        playingMessageId={null}
+        onTogglePlayback={jest.fn()}
+        onRetryDecrypt={jest.fn(async () => null)}
+      />,
+    );
+
+    expect(getByText('invoice.pdf')).toBeTruthy();
+    expect(getByText('application/pdf • 320.5 KB')).toBeTruthy();
   });
 });

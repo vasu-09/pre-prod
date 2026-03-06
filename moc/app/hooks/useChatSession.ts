@@ -69,7 +69,13 @@ type ReplyMetadata = {
 
 const MESSAGE_TYPE_TEXT = 'TEXT';
 const MESSAGE_TYPE_IMAGE = 'IMAGE';
-type OutgoingMessageType = typeof MESSAGE_TYPE_TEXT | typeof MESSAGE_TYPE_IMAGE;
+const MESSAGE_TYPE_VIDEO = 'VIDEO';
+const MESSAGE_TYPE_FILE = 'FILE';
+type OutgoingMessageType =
+  | typeof MESSAGE_TYPE_TEXT
+  | typeof MESSAGE_TYPE_IMAGE
+  | typeof MESSAGE_TYPE_VIDEO
+  | typeof MESSAGE_TYPE_FILE;
 const SHOULD_LOG_DECRYPT = __DEV__ && process.env.EXPO_PUBLIC_DEBUG_DECRYPT !== '0';
 const SHOULD_LOG_E2EE = __DEV__ && process.env.EXPO_PUBLIC_DEBUG_E2EE !== '0';
 const DECRYPTION_PENDING_MESSAGE = 'Waiting for this message. This may take a while.';
@@ -1638,6 +1644,16 @@ export const useChatSession = ({
     [sendEncryptedMessage],
   );
 
+  const sendVideoMessage = useCallback(
+    async (payload: string) => sendEncryptedMessage(payload, MESSAGE_TYPE_VIDEO),
+    [sendEncryptedMessage],
+  );
+
+  const sendFileMessage = useCallback(
+    async (payload: string) => sendEncryptedMessage(payload, MESSAGE_TYPE_FILE),
+    [sendEncryptedMessage],
+  );
+
   const markLatestRead = useCallback(async () => {
     if (!roomId || !resolvedRoomKey) {
       return;
@@ -1679,6 +1695,8 @@ export const useChatSession = ({
     error,
     sendTextMessage,
     sendImageMessage,
+    sendVideoMessage,
+    sendFileMessage,
     notifyTyping,
     markLatestRead,
     typingUsers,

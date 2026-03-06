@@ -39,6 +39,7 @@ import {
   saveListSummaryToDb,
   updateMessageDeletionInDb,
 } from '../services/database';
+import { prepareDocumentForChat, prepareVideoForChat } from '../services/imageCompression';
 import {
   deleteMessageForEveryone,
   deleteMessageForMe,
@@ -231,6 +232,18 @@ export const MessageContent = ({
     };
   }, [structuredPayload]);
 
+  const videoPayload = useMemo(() => {
+    if (structuredPayload?.type !== 'video') return null;
+    if (!structuredPayload?.media?.url) return null;
+    return structuredPayload;
+  }, [structuredPayload]);
+
+  const documentPayload = useMemo(() => {
+    if (structuredPayload?.type !== 'document') return null;
+    if (!structuredPayload?.media?.url) return null;
+    return structuredPayload;
+  }, [structuredPayload]);
+
   const replyPayload = useMemo(() => {
     if (structuredPayload?.type === 'reply' && typeof structuredPayload?.body === 'string') {
       return structuredPayload;
@@ -316,6 +329,17 @@ export const MessageContent = ({
     }, 0);
     return `₹${totalValue}`;
   }, [isTablePayload, todoPayload, tableRows]);
+  const formatFileSize = useCallback(size => {
+    if (typeof size !== 'number' || !Number.isFinite(size) || size < 0) return null;
+    if (size < 1024) return `${size} B`;
+    const kb = size / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    const mb = kb / 1024;
+    if (mb < 1024) return `${mb.toFixed(1)} MB`;
+    const gb = mb / 1024;
+    return `${gb.toFixed(1)} GB`;
+  }, []);
+
   return (
     <View style={styles.messageContentRow}>
       {item.audio ? (
@@ -446,6 +470,46 @@ export const MessageContent = ({
               )}
               {imagePayload.caption ? <Text style={styles.messageText}>{imagePayload.caption}</Text> : null}
             </View>
+            ) : videoPayload ? (
+            <TouchableOpacity
+              style={styles.videoMessageWrapper}
+              onPress={() => Linking.openURL(videoPayload.media.url).catch(() => Alert.alert('Error', 'Unable to open video'))}
+            >
+              <View style={styles.videoThumbWrap}>
+                {videoPayload.media.thumbUrl ? (
+                  <Image source={{ uri: videoPayload.media.thumbUrl }} style={styles.videoThumbImage} resizeMode="cover" />
+                ) : (
+                  <View style={styles.videoThumbPlaceholder}>
+                    <Icon name="videocam" size={28} color="#9ca3af" />
+                  </View>
+                )}
+                <View style={styles.videoPlayBadge}>
+                  <Icon name="play-arrow" size={22} color="#fff" />
+                </View>
+              </View>
+              <Text style={styles.videoMetaText} numberOfLines={1}>
+                {videoPayload?.media?.fileName || 'Video'}
+              </Text>
+              {videoPayload?.caption ? <Text style={styles.messageText}>{videoPayload.caption}</Text> : null}
+            </TouchableOpacity>
+             ) : documentPayload ? (
+            <TouchableOpacity
+              style={styles.documentMessageWrapper}
+              onPress={() => Linking.openURL(documentPayload.media.url).catch(() => Alert.alert('Error', 'Unable to open document'))}
+            >
+              <Icon name="description" size={22} color="#1f6ea7" />
+              <View style={styles.documentMetaWrap}>
+                <Text style={styles.documentName} numberOfLines={1}>
+                  {documentPayload?.media?.fileName || 'Document'}
+                </Text>
+                <Text style={styles.documentSubtext} numberOfLines={1}>
+                  {documentPayload?.media?.contentType || 'application/octet-stream'}
+                  {formatFileSize(documentPayload?.media?.sizeBytes)
+                    ? ` • ${formatFileSize(documentPayload?.media?.sizeBytes)}`
+                    : ''}
+                </Text>
+              </View>
+            </TouchableOpacity>
              ) : locationPayload ? (
            <View style={styles.locationMessageWrapper}>
               <TouchableOpacity
@@ -538,7 +602,7 @@ export const MessageContent = ({
           )}
         </View>
       )}
-       {todoPayload ? null : locationPayload ? null : imagePayload ? null : showStatusRow ? (
+       {todoPayload ? null : locationPayload ? null : imagePayload ? null : videoPayload ? null : documentPayload ? null : showStatusRow ? (
         <View style={styles.messageStatusRow}>
           {item.time ? (
             <Text
@@ -638,6 +702,8 @@ export default function ChatDetailScreen() {
     messages: sessionMessages,
     sendTextMessage,
     sendImageMessage,
+    sendVideoMessage,
+    sendFileMessage,
     notifyTyping,
     markLatestRead,
     typingUsers,
@@ -971,32 +1037,48 @@ const makeReplyPayload = useCallback(
   });
   
   const pickAndSendFile = async () => {
-  try {
+    try {
       const res = await DocumentPicker.getDocumentAsync({
         type: '*/*',
         copyToCacheDirectory: true,
       });
-      if (res.type === 'cancel') return;
-      const nowIso = new Date().toISOString();
 
-      const file = {
-        id: createLocalMessageId(),
-        text: `📄 ${res.name}`,
-        uri: res.uri,
-        name: res.name,
-        mimeType: res.mimeType,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        serverTs: nowIso,
-        sender: 'me',
-        isFile: true,
-        pending: true,
-      };
+      if (res.canceled || res.type === 'cancel') return;
+      const pickedAsset = res.assets ? res.assets[0] : res;
+      const mimeType = pickedAsset?.mimeType || '';
 
-      setLocalMessages(prev => [...prev, file]);
+      if (mimeType.startsWith('video/')) {
+        const preparedVideo = await prepareVideoForChat(pickedAsset);
+        const uploadedVideo = await uploadMediaToStore(preparedVideo);
+        const payload = JSON.stringify({
+          type: 'video',
+          caption: '',
+          media: uploadedVideo,
+        });
+        const result = await sendVideoMessage(payload);
+        if (!result?.success) {
+          throw new Error('Video metadata send failed');
+        }
+        return;
+      }
+
+      const doc = await prepareDocumentForChat(pickedAsset);
+      const uploaded = await uploadMediaToStore(doc);
+      const payload = JSON.stringify({
+        type: 'document',
+        media: uploaded,
+      });
+
+      const result = await sendFileMessage(payload);
+      if (!result?.success) {
+        throw new Error('Document metadata send failed');
+      }
     } catch (err) {
-      console.warn('File picker error:', err);
+      console.warn('File send error:', err);
+      Alert.alert('Attachment send failed', 'Unable to send the attachment. Please try again.');
     }
   };
+  
   const openCamera = () => {
     setAttachMenuVisible(false);
     router.push({
@@ -1279,35 +1361,21 @@ const makeReplyPayload = useCallback(
 
 
 
-  const inferMimeType = useCallback(uri => {
-    const normalized = (uri || '').toLowerCase();
-    if (normalized.endsWith('.png')) return 'image/png';
-    if (normalized.endsWith('.webp')) return 'image/webp';
-    if (normalized.endsWith('.heic') || normalized.endsWith('.heif')) return 'image/heic';
-    return 'image/jpeg';
-  }, []);
-
-  const uploadImageToMediaStore = useCallback(async (uri, mimeTypeOverride) => {
+  const uploadMediaToStore = useCallback(async ({
+    uri,
+    mimeType,
+    fileName = null,
+    sizeBytes = null,
+    thumbUri = null,
+  }) => {
     try {
       const response = await fetch(uri);
       const blob = await response.blob();
-      
-      const normalizedOverride =
-        typeof mimeTypeOverride === 'string' && mimeTypeOverride.startsWith('image/')
-          ? mimeTypeOverride
-          : null;
-
-      const normalizedBlobType =
-        typeof blob?.type === 'string' && blob.type.startsWith('image/')
-          ? blob.type
-          : null;
 
       const contentType =
-        normalizedOverride || inferMimeType(uri) || normalizedBlobType || 'image/jpeg';
-
-      if (!contentType.startsWith('image/')) {
-        throw new Error(`Invalid upload content type resolved: ${contentType}`);
-      }
+        (typeof mimeType === 'string' && mimeType.trim()) ||
+        (typeof blob?.type === 'string' && blob.type.trim()) ||
+        'application/octet-stream';
 
       if (!roomId) {
         throw new Error('Missing roomId for media upload');
@@ -1316,9 +1384,11 @@ const makeReplyPayload = useCallback(
       const intent = await apiClient.post('/api/media/uploads', {
         roomId,
         contentType,
-        sizeBytes: blob.size,
+        sizeBytes: sizeBytes ?? blob.size,
         resumable: false,
+        fileName,
       });
+
       const { mediaId, putUrl } = intent.data || {};
       if (!mediaId || !putUrl) {
         throw new Error('Upload intent missing media details');
@@ -1329,23 +1399,63 @@ const makeReplyPayload = useCallback(
         headers: { 'Content-Type': contentType },
         body: blob,
       });
+
       if (!putResponse.ok) {
         throw new Error(`Upload failed with status ${putResponse.status}`);
+      }
+
+      let uploadedThumb = null;
+      if (thumbUri) {
+        try {
+          const thumbResponse = await fetch(thumbUri);
+          const thumbBlob = await thumbResponse.blob();
+          const thumbType =
+            (typeof thumbBlob?.type === 'string' && thumbBlob.type.trim()) ||
+            'image/jpeg';
+          const thumbIntent = await apiClient.post('/api/media/uploads', {
+            roomId,
+            contentType: thumbType,
+            sizeBytes: thumbBlob.size,
+            resumable: false,
+            fileName: fileName ? `thumb-${fileName}` : 'thumbnail.jpg',
+          });
+          const { mediaId: thumbMediaId, putUrl: thumbPutUrl } = thumbIntent.data || {};
+          if (thumbMediaId && thumbPutUrl) {
+            const thumbPutResponse = await fetch(thumbPutUrl, {
+              method: 'PUT',
+              headers: { 'Content-Type': thumbType },
+              body: thumbBlob,
+            });
+            if (thumbPutResponse.ok) {
+              await apiClient.post(`/api/media/${thumbMediaId}/complete`);
+              const thumbUrlResponse = await apiClient.get(`/api/media/${thumbMediaId}/urls`);
+              const thumbUrls = thumbUrlResponse.data || {};
+              uploadedThumb = thumbUrls.original || thumbUrls.thumb || null;
+            }
+          }
+        } catch (thumbErr) {
+          console.warn('Thumbnail upload failed, continuing without thumbnail', thumbErr);
+        }
       }
 
       await apiClient.post(`/api/media/${mediaId}/complete`);
       const urlResponse = await apiClient.get(`/api/media/${mediaId}/urls`);
       const mediaUrls = urlResponse.data || {};
+
       if (!mediaUrls.original) {
         throw new Error('No media URL returned from backend');
       }
+
       return {
         mediaId,
         url: mediaUrls.original,
-        thumbUrl: mediaUrls.thumb || null,
+        thumbUrl: mediaUrls.thumb || uploadedThumb || null,
         contentType,
+        fileName,
+        sizeBytes: sizeBytes ?? blob.size,
         width: mediaUrls.width || null,
         height: mediaUrls.height || null,
+        durationMs: mediaUrls.durationMs || null,
       };
     } catch (error) {
       console.log('[media upload error]', {
@@ -1358,7 +1468,7 @@ const makeReplyPayload = useCallback(
       });
       throw error;
     }
-  }, [inferMimeType, roomId]);
+  }, [roomId]);
 
   useEffect(() => {
     if (!paramLocation || !roomId) {
@@ -1422,6 +1532,9 @@ const makeReplyPayload = useCallback(
               return {
                 uri: item.uri,
                 mimeType: typeof item?.mimeType === 'string' ? item.mimeType : undefined,
+                fileName: typeof item?.fileName === 'string' ? item.fileName : undefined,
+                sizeBytes: typeof item?.sizeBytes === 'number' ? item.sizeBytes : undefined,
+                thumbUri: typeof item?.thumbUri === 'string' ? item.thumbUri : undefined,
               };
             }
             return null;
@@ -1438,7 +1551,7 @@ const makeReplyPayload = useCallback(
       try {
         const uploadedMedia = [];
         for (const item of selectedMedia) {
-          const uploaded = await uploadImageToMediaStore(item.uri, item.mimeType);
+          const uploaded = await uploadMediaToStore(item);
           uploadedMedia.push(uploaded);
         }
 
@@ -1461,7 +1574,7 @@ const makeReplyPayload = useCallback(
         Alert.alert('Media upload failed', 'Unable to send one or more images. Please try again.');
       }
     })();
-  }, [navigation, paramMediaPayload, roomId, sendImageMessage, uploadImageToMediaStore]);
+  }, [navigation, paramMediaPayload, roomId, sendImageMessage, uploadMediaToStore]);
 
   useEffect(() => {
     const onFocus = () => {
@@ -3012,6 +3125,66 @@ const styles = StyleSheet.create({
     height: 106,
     borderRadius: 8,
     margin: 2,
+  },
+  videoMessageWrapper: {
+    alignItems: 'flex-start',
+    maxWidth: 250,
+  },
+  videoThumbWrap: {
+    width: 220,
+    height: 130,
+    borderRadius: 12,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#111827',
+    marginBottom: 6,
+  },
+  videoThumbImage: {
+    width: '100%',
+    height: '100%',
+  },
+  videoThumbPlaceholder: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoPlayBadge: {
+    position: 'absolute',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  videoMetaText: {
+    fontSize: 12,
+    color: '#374151',
+  },
+  documentMessageWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#eff6ff',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    maxWidth: 250,
+  },
+  documentMetaWrap: {
+    marginLeft: 8,
+    flexShrink: 1,
+  },
+  documentName: {
+    fontSize: 13,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  documentSubtext: {
+    fontSize: 11,
+    color: '#4b5563',
+    marginTop: 2,
   },
   locationCard: {
     backgroundColor: 'transparent',

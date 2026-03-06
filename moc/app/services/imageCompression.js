@@ -6,7 +6,7 @@ const MAX_LONG_EDGE = 1600;
 const STANDARD_QUALITY = 0.78;
 const SKIP_RECOMPRESS_MAX_BYTES = 300 * 1024;
 
-const getFileSizeSafe = async uri => {
+export const getFileSizeSafe = async uri => {
   if (!uri) return null;
   try {
     const info = await FileSystem.getInfoAsync(uri, { size: true });
@@ -14,6 +14,42 @@ const getFileSizeSafe = async uri => {
   } catch {
     return null;
   }
+};
+
+export const prepareDocumentForChat = async asset => {
+  const uri = asset?.uri;
+  if (!uri) throw new Error('Missing document uri');
+
+  return {
+    uri,
+    mimeType: asset?.mimeType || 'application/octet-stream',
+    fileName: asset?.name || asset?.fileName || 'document',
+    sizeBytes: await getFileSizeSafe(uri),
+    wasCompressed: false,
+  };
+};
+
+export const prepareVideoForChat = async asset => {
+  const uri = asset?.uri;
+  if (!uri) throw new Error('Missing video uri');
+
+  let thumbUri = null;
+  try {
+    const VideoThumbnails = require('expo-video-thumbnails');
+    const result = await VideoThumbnails.getThumbnailAsync(uri, { time: 1000 });
+    thumbUri = result?.uri || null;
+  } catch {
+    thumbUri = null;
+  }
+
+  return {
+    uri,
+    mimeType: asset?.mimeType || 'video/mp4',
+    fileName: asset?.name || asset?.fileName || 'video.mp4',
+    sizeBytes: await getFileSizeSafe(uri),
+    thumbUri,
+    wasCompressed: false,
+  };
 };
 
 const getDimensionsSafe = uri => new Promise(resolve => {
