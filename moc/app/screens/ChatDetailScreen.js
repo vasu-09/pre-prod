@@ -98,8 +98,8 @@ export const MessageContent = ({
   onTogglePlayback,
   onRetryDecrypt,
   deletedForEveryone = false,
-  deletedLabel,
-  replyMeta,
+  deletedLabel = null,
+  replyMeta = null,
 }) => {
   const [overrideText, setOverrideText] = useState(null);
   const [retryStatus, setRetryStatus] = useState('idle');
