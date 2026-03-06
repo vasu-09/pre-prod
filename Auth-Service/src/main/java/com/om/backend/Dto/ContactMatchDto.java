@@ -4,11 +4,15 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 
 
-public class ContactMatchDto { private Long userId; private String phone;
+public class ContactMatchDto { 
+    private Long userId; 
+    private String phone; 
+    private String avatarUrl;
 
-    public ContactMatchDto(Long userId, String phone) {
+    public ContactMatchDto(Long userId, String phone, String avatarUrl) {
         this.userId = userId;
         this.phone = phone;
+        this.avatarUrl = avatarUrl;
     }
 
     public ContactMatchDto() {
@@ -28,5 +32,12 @@ public class ContactMatchDto { private Long userId; private String phone;
 
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
+    public void setAvatarUrl(String avatarUrl) {
+        this.avatarUrl = avatarUrl;
     }
 }

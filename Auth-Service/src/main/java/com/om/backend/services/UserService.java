@@ -1,5 +1,7 @@
 package com.om.backend.services;
 
+import com.om.backend.Dto.MediaGetUrlReq;
+import com.om.backend.Dto.MediaGetUrlResp;
 import com.om.backend.Dto.UserProfileDto;
 import com.om.backend.Model.NotificationPreferences;
 import com.om.backend.Model.PrivacySettings;
@@ -8,8 +10,10 @@ import com.om.backend.Model.UserChatPrefs;
 
 import com.om.backend.Repositories.UserChatPrefsRepository;
 import com.om.backend.Repositories.UserRepository;
+import com.om.backend.client.MediaClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
@@ -26,13 +30,22 @@ public class UserService {
 
     private final UserRepository userRepo;
     private final UserChatPrefsRepository ucpRepo;
+    private final MediaClient mediaClient;
 
+    @Value("${media.bucket}")
+    private String bucket;
+
+    @Value("${media.get-url-ttl-seconds:3600}")
+    private int avatarGetUrlTtlSeconds;
 
     private static final Logger log = LoggerFactory.getLogger(OtpService.class);
 
-    public UserService(UserRepository userRepo, UserChatPrefsRepository ucpRepo) {
+    public UserService(UserRepository userRepo,
+                       UserChatPrefsRepository ucpRepo,
+                       MediaClient mediaClient) {
         this.userRepo = userRepo;
         this.ucpRepo = ucpRepo;
+        this.mediaClient = mediaClient;
     }
 
     // -------- Profile (if you need it here) --------
@@ -181,10 +194,33 @@ public class UserService {
     private UserProfileDto toUserProfileDto(User user) {
         UserProfileDto userprofile = new UserProfileDto();
         userprofile.setId(String.valueOf(user.getId()));
-        userprofile.setAvatarUrl(user.getAvatarUrl());
+        userprofile.setAvatarUrl(resolveAvatarUrl(user));
         userprofile.setEmail(user.getEmail());
         userprofile.setDisplayName(user.getUserName());
         return userprofile;
+    }
+
+    private String resolveAvatarUrl(User user) {
+        if (user == null || !StringUtils.hasText(user.getAvatarKey())) {
+            return null;
+        }
+
+        try {
+            MediaGetUrlResp resp = mediaClient.getUrl(
+                    new MediaGetUrlReq(bucket, user.getAvatarKey(), avatarGetUrlTtlSeconds)
+            );
+
+            if (resp == null || resp.getUrl() == null || resp.getUrl().isBlank()) {
+                log.warn("Media getUrl returned empty for userId={}, key={}", user.getId(), user.getAvatarKey());
+                return null;
+            }
+
+            return resp.getUrl();
+        } catch (Exception e) {
+            log.warn("Failed to generate avatar signed GET URL for userId={}, key={}",
+                    user.getId(), user.getAvatarKey(), e);
+            return null;
+        }
     }
 }
 

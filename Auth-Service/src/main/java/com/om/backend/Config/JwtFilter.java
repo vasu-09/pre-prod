@@ -3,11 +3,11 @@ package com.om.backend.Config;
 
 import com.om.backend.services.JWTService;
 
-import com.om.backend.services.OtpService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import io.jsonwebtoken.JwtException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,11 +44,18 @@ public class JwtFilter extends OncePerRequestFilter {
 
         String token = resolveToken(request);
         String sub = null; // holds the JWT subject (user id)
+        String method = request.getMethod();
+        String uri = request.getRequestURI();
 
         log.info("authorization token resolved from headers/query={} for {} {}",
-                token == null ? "<missing>" : "<present>", request.getMethod(), request.getRequestURI());
+                token == null ? "<missing>" : "<present>", method, uri);
         if (token != null) {
-            sub = jwtService.extractPhonenumber(token); // subject = userId
+           try {
+                sub = jwtService.extractPhonenumber(token); // subject = userId
+                log.info("access_token parsed successfully for {} {}, subject={}", method, uri, sub);
+            } catch (JwtException | IllegalArgumentException ex) {
+                log.warn("access_token parsing failed for {} {}: {}", method, uri, ex.getMessage());
+            }
 
         }
         // Previously we loaded the user by phone number. However our tokens use the
@@ -62,7 +69,13 @@ public class JwtFilter extends OncePerRequestFilter {
                         new UsernamePasswordAuthenticationToken(sub, token, List.of());
                 authentoken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentoken);
+                log.info("access_token validation succeeded for {} {}, authentication set for subject={}",
+                        method, uri, sub);
+            } else {
+                log.warn("access_token validation failed for {} {}: token expired", method, uri);
             }
+        } else if (sub == null && token != null) {
+            log.warn("access_token validation skipped for {} {}: unable to resolve subject", method, uri);
         }
         filterChain.doFilter(request, response);
     }

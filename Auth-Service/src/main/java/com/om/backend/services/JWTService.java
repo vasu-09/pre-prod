@@ -5,6 +5,8 @@ import com.om.backend.Config.JwtConfig;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -29,6 +31,8 @@ import java.util.function.Function;
 @Service
 public class JWTService implements OtpService.JwtSigner {
 
+    private static final Logger log = LoggerFactory.getLogger(JWTService.class);
+    
     private final JwtConfig cfg;
     private final RSAPrivateKey privateKey;
     private final RSAPublicKey currentPublic;
@@ -195,6 +199,7 @@ public class JWTService implements OtpService.JwtSigner {
 
     @Override
     public String signAccessToken(Long userId, String sessionId) {
+        logSigningKeyBits();
         Instant now = Instant.now();
         Instant exp = now.plus(Duration.ofMinutes(cfg.getAccessTtlMin()));
 
@@ -211,6 +216,7 @@ public class JWTService implements OtpService.JwtSigner {
 
     @Override
     public String signRefreshToken(Long userId, String sessionId) {
+        logSigningKeyBits();
         Instant now = Instant.now();
         Instant exp = now.plus(Duration.ofDays(cfg.getRefreshTtlDays()));
 
@@ -222,6 +228,10 @@ public class JWTService implements OtpService.JwtSigner {
                 .subject(String.valueOf(userId))
                 .signWith(privateKey, Jwts.SIG.RS256)
                 .compact();
+    }
+
+    private void logSigningKeyBits() {
+        log.info("JWT SIGNING key modulus bits = {}", privateKey.getModulus().bitLength());
     }
 }
 

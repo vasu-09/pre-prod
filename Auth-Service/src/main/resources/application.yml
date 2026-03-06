@@ -57,22 +57,22 @@ sms:
 
 jwt:
   alg: RS256
-  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}       # set to your real base URL/host:port
+  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:80}       # set to your real base URL/host:port
   kid: ${JWT_KID::main-2025-08-16}                  # any stable ID for this key
   audience: ${JWT_AUDIENCE:}
   private-key-pem: ${JWT_PRIVATE_KEY_PEM:}
   # optional rotation support (publish old public key alongside the new one)
   previous-kid: ${JWT_PREV_KID:}
   previous-public-pem: ${JWT_PREV_PUB_PEM:}
-  access-ttl-min: ${JWT_ACCESS_TTL_MIN:15}
+  access-ttl-min: ${JWT_ACCESS_TTL_MIN:59}
   refresh-ttl-days: ${JWT_REFRESH_TTL_DAYS:90}
 
 media:
-  bucket: ${MEDIA_BUCKET:moc-prod}   # default "moc-prod", override via env var MEDIA_BUCKET
+  bucket: ${MEDIA_BUCKET:moc-preprod-rtc-media}   # default "moc-prod", override via env var MEDIA_BUCKET
 
 # (recommended—where to call RTC)
 rtc:
-  base-url: ${RTC_BASE_URL:http://localhost:8091}
+  base-url: ${RTC_BASE_URL:http://rtc-service.moc-preprod.svc.cluster.local:80}
 
 # optional, nice-to-have knobs used by AvatarService
 avatar:
@@ -87,4 +87,4 @@ cors:
 app:
   clock:
     zone: Asia/Kolkata
-  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:8092}
+  issuer: ${JWT_ISSUER:http://auth-service.moc-preprod.svc.cluster.local:80}

@@ -25,6 +25,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<String> findPhoneNumbersByIds(@Param("id") List<Long> id);
 
     List<User> findByPhoneNumberIn(List<String> e164Phones);
+
     @Query(value = """
             SELECT *
             FROM users u

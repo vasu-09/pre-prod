@@ -36,7 +36,14 @@ public class ContactSyncService {
                 rawPhones.size(), sanitizedPhones.size());
 
         Set<String> normalized = sanitizedPhones.stream()
-                .flatMap(phone -> buildLookupCandidates(phone).stream())
+                .flatMap(phone -> {
+                    try {
+                        return buildLookupCandidates(phone).stream();
+                    } catch (Exception ex) {
+                        log.debug("Skipping phone due to unexpected exception: raw='{}'", phone, ex);
+                        return java.util.stream.Stream.<String>empty();
+                    }
+                })
                 .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
 
         if (normalized.isEmpty()) {
@@ -56,7 +63,7 @@ public class ContactSyncService {
             users.addAll(userRepo.findByPhoneNumberCanonicalDigitsIn(List.copyOf(canonicalDigits)));
         }
         List<ContactMatchDto> matches = users.stream()
-                .map(u -> new ContactMatchDto(u.getId(), u.getPhoneNumber()))
+                .map(u -> new ContactMatchDto(u.getId(), u.getPhoneNumber(), u.getAvatarUrl()))
                 .toList();
 
         log.info("Contact sync returning {} matched phone numbers", matches.size());
@@ -81,22 +88,34 @@ public class ContactSyncService {
       }
 
    private Set<String> buildLookupCandidates(String rawPhone) {
-        Set<String> variants = new LinkedHashSet<>();
+    Set<String> variants = new LinkedHashSet<>();
 
-        String e164 = safeNormalize(rawPhone);
-        if (e164 == null) {
-            log.debug("Skipping invalid phone number during contact sync");
-            return variants;
-        }
-        variants.add(e164);
-        variants.add(e164.substring(1));
-        try {
-            variants.add(PhoneNumberUtil1.toIndiaNsn10(e164));
-        } catch (IllegalArgumentException ex) {
-            log.debug("Skipping NSN variant for non-mobile number during contact sync");
-        }
+    String e164 = safeNormalize(rawPhone);
+    if (e164 == null) {
+        // invalid / unsupported country / garbage
         return variants;
     }
+
+    // Only allow Indian MOBILE numbers (10 digits, start 6-9).
+    // For non-mobile (landline like +9140...), skip completely.
+    final String nsn10;
+    try {
+        nsn10 = PhoneNumberUtil1.toIndiaNsn10(e164);  // throws for 1-5 start etc.
+    } catch (IllegalArgumentException ex) {
+        // IMPORTANT: don't let it bubble and don't include landlines in lookup
+        log.debug("Skipping non-mobile Indian number during contact sync: raw='{}', e164='{}'", rawPhone, e164);
+        return variants;
+    }
+
+    // Build only mobile variants (avoids wasting DB queries on landlines)
+    String e164Mobile = "+91" + nsn10;
+    variants.add(e164Mobile);      // +919876543210
+    variants.add("91" + nsn10);    // 919876543210
+    variants.add(nsn10);           // 9876543210 (optional, but useful if DB has plain 10-digit)
+
+    return variants;
+}
+
    
    private String digitsOnly(String input) {
         return input == null ? "" : input.replaceAll("[^0-9]", "");

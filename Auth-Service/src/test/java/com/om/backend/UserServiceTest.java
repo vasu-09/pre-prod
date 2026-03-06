@@ -5,6 +5,7 @@ import com.om.backend.Model.PrivacySettings;
 import com.om.backend.Model.User;
 import com.om.backend.Repositories.UserChatPrefsRepository;
 import com.om.backend.Repositories.UserRepository;
+import com.om.backend.client.MediaClient;
 import com.om.backend.services.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
 
 @DataJpaTest
 class UserServiceTest {
@@ -23,12 +25,15 @@ class UserServiceTest {
     @Autowired
     UserChatPrefsRepository prefsRepo;
 
+    MediaClient mediaClient;
+    
     UserService userService;
     User user;
 
     @BeforeEach
     void setup(){
-        userService = new UserService(userRepo, prefsRepo);
+        mediaClient = mock(MediaClient.class);
+        userService = new UserService(userRepo, prefsRepo, mediaClient);
         user = new User();
         user.setPhoneNumber("+919999999999");
         user = userRepo.save(user);

@@ -1,9 +1,9 @@
 package com.om.backend.Controllers;
 
-
-
 import com.om.backend.Config.JwtConfig;
 import com.om.backend.Config.RsaKeys;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,6 +16,8 @@ import static java.util.Base64.getUrlEncoder;
 @RestController
 public class JwksController {
 
+    private static final Logger log = LoggerFactory.getLogger(JwksController.class);
+    
     private final RSAPublicKey current;
     private final JwtConfig cfg;
 
@@ -26,6 +28,7 @@ public class JwksController {
 
     @GetMapping("/.well-known/jwks.json")
     public Map<String,Object> jwks() {
+        log.info("JWKS PUBLIC key modulus bits = {}", current.getModulus().bitLength());
         List<Map<String,Object>> keys = new ArrayList<>();
         keys.add(jwk(cfg.getKid(), current));
 
