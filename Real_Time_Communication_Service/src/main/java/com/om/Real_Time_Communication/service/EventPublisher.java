@@ -31,13 +31,13 @@ public class EventPublisher {
                                   boolean e2ee,
                                   String preview) {
         java.util.Map<String, Object> payload = new java.util.HashMap<>();
-        payload.put("type", "MESSAGE_NEW");
+        payload.put("type", "NEW_MESSAGE");
         payload.put("roomId", roomId);
         payload.put("messageId", messageId);
         payload.put("senderId", senderId);
         payload.put("e2ee", e2ee);
         if (preview != null) payload.put("preview", preview);
-        payload.put("recipients", recipientIds);
+        payload.put("recipientIds", recipientIds);
 
         // Example: publish to notifications exchange
         // routing key can be tenant-aware if you have multitenancy

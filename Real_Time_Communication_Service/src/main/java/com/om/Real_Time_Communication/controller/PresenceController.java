@@ -70,12 +70,17 @@ public class PresenceController {
         }
     }
 
+    @Data
+    public static class RoomPresenceDto {
+        private String deviceId;
+    }
+
     /** Client SENDs to /app/room.{roomId}.ping every ~15s with {deviceId} */
     @MessageMapping("/room/{roomId}/ping")
     public void ping(@DestinationVariable Long roomId, PingDto dto, Principal principal) {
         Long userId = Long.valueOf(principal.getName());
         String deviceId = dto.getDeviceId() != null ? dto.getDeviceId() : "default";
-        PresenceRegistry.Presence p = registry.touch(userId, deviceId);
+        PresenceRegistry.Presence p = registry.touch(userId, deviceId, roomId);
 
         log.info("[RTC][PRESENCE] /room/{}/ping user={} deviceId={} online={} lastSeen={} ",
                 roomId,
@@ -94,7 +99,21 @@ public class PresenceController {
         log.info("[RTC][PRESENCE][OK] broadcast presence for user={} room={} deviceId={}", userId, roomId, deviceId);
     }
 
+    @MessageMapping("/room/{roomId}/enter")
+    public void enterRoom(@DestinationVariable Long roomId, RoomPresenceDto dto, Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        String deviceId = dto != null && dto.getDeviceId() != null ? dto.getDeviceId() : "default";
+        registry.setActiveRoom(userId, deviceId, roomId);
+        log.info("[RTC][PRESENCE] user={} deviceId={} entered room={}", userId, deviceId, roomId);
+    }
 
+    @MessageMapping("/room/{roomId}/leave")
+    public void leaveRoom(@DestinationVariable Long roomId, RoomPresenceDto dto, Principal principal) {
+        Long userId = Long.valueOf(principal.getName());
+        String deviceId = dto != null && dto.getDeviceId() != null ? dto.getDeviceId() : "default";
+        registry.clearActiveRoom(userId, deviceId, roomId);
+        log.info("[RTC][PRESENCE] user={} deviceId={} left room={}", userId, deviceId, roomId);
+    }
 
     /** Client SENDs to /app/room.{roomId}.typing with {deviceId, typing:true/false} */
     @MessageMapping("/room/{roomId}/typing")

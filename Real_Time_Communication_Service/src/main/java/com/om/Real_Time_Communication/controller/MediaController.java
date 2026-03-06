@@ -3,7 +3,6 @@ package com.om.Real_Time_Communication.controller;
 import com.om.Real_Time_Communication.Repository.MediaRepository;
 import com.om.Real_Time_Communication.dto.*;
 import com.om.Real_Time_Communication.models.Media;
-import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -30,7 +29,7 @@ public class MediaController {
     private final GcsSigner signer;
     private final MediaJobs jobs;
 
-    private static final long MAX_SIZE_BYTES = 50L * 1024 * 1024; // 50MB
+    private static final long MAX_SIZE_BYTES = 200L * 1024 * 1024; // 200MB
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
             "image/jpeg",
             "image/jpg",
@@ -38,7 +37,23 @@ public class MediaController {
             "image/webp",
             "image/heic",
             "image/heif",
-            "video/mp4"
+        
+            "video/mp4",
+            "video/quicktime",
+            "video/x-matroska",
+            "video/webm",
+            "video/3gpp",
+
+            "application/pdf",
+            "text/plain",
+            "text/csv",
+            "application/zip",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     );
 
     public MediaController(MediaRepository repo, GcsSigner signer, MediaJobs jobs) {
@@ -67,17 +82,18 @@ public class MediaController {
     // 1) Client requests an upload slot
     @PostMapping("/uploads")
     public Map<String,Object> createUpload(Principal principal,
-                                            HttpServletRequest request,
                                            @RequestBody CreateUploadReq req) {
         Long userId = Long.valueOf(principal.getName());
         Long roomId = req != null ? req.roomId() : null;
+        String fileName = req != null ? req.fileName() : null;
         Long requestedSize = req != null ? req.sizeBytes() : null;
-        log.info("[MEDIA][UPLOAD][REQ] userId={} contentType={} filePresent={} fileName={} size={}",
+        String mediaContentType = req != null ? req.contentType() : null;
+        log.info("[MEDIA][UPLOAD][REQ] userId={} mediaContentType={} fileName={} size={} roomId={}",
                 userId,
-                request.getContentType(),
-                false,
-                null,
-                requestedSize);
+                mediaContentType,
+                fileName,
+                requestedSize,
+                roomId);
 
         try {
             // Validate
@@ -91,7 +107,11 @@ public class MediaController {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "contentType is required");
             }
             if (!ALLOWED_CONTENT_TYPES.contains(req.contentType())) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported content type");
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "unsupported content type: " + req.contentType());
+            }
+            if (req.fileName() == null || req.fileName().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fileName is required");
             }
             if (req.sizeBytes() == null || req.sizeBytes() <= 0) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sizeBytes must be > 0");
@@ -134,10 +154,11 @@ public class MediaController {
 
             return out;
         } catch (Exception e) {
-            log.error("[MEDIA][UPLOAD][FAIL] userId={} roomId={} fileName={}",
+            log.error("[MEDIA][UPLOAD][FAIL] userId={} roomId={} fileName={} contentType={}",
                     userId,
                     roomId,
-                    null,
+                    fileName,
+                    mediaContentType,
                     e);
             throw e;
         }
@@ -200,6 +221,10 @@ public class MediaController {
         return Map.of("ok", true);
     }
 
-    public record CreateUploadReq(String contentType, Long sizeBytes, boolean resumable, Long roomId) {}
+    public record CreateUploadReq(String contentType,
+                                  Long sizeBytes,
+                                  boolean resumable,
+                                  Long roomId,
+                                  String fileName) {}
 }
 

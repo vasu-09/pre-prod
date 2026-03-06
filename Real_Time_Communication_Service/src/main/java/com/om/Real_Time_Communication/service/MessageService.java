@@ -9,6 +9,7 @@ import com.om.Real_Time_Communication.dto.MessageDto;
 import com.om.Real_Time_Communication.models.*;
 import com.om.Real_Time_Communication.utility.IdValidators;
 import com.om.Real_Time_Communication.security.SessionRegistry;
+import com.om.Real_Time_Communication.presence.PresenceRegistry;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -83,6 +84,9 @@ public class MessageService {
 
     @Autowired
     private InboxDeliveryService inboxDeliveryService;
+
+    @Autowired(required = false)
+    private PresenceRegistry presenceRegistry;
 
 
     @Transactional
@@ -172,20 +176,26 @@ public class MessageService {
                 java.util.List<Long> recipients = new java.util.ArrayList<>(membership.memberIds(roomId));
                 recipients.removeIf(id -> id.equals(senderId)); // exclude author
 
+                java.util.List<Long> pushRecipients = recipients.stream()
+                        .filter(recipientId -> shouldPush(recipientId, roomId))
+                        .collect(java.util.stream.Collectors.toList());
+
                 String preview = null;
                 if (!saved.isE2ee() && saved.getBody() != null && !saved.getBody().isBlank()) {
                     String b = saved.getBody();
                     preview = b.length() > 140 ? b.substring(0, 140) : b;
                 }
 
-                eventPublisher.publishNewMessage(
-                        roomId,
-                        saved.getMessageId(),
-                        senderId,
-                        recipients,
-                        saved.isE2ee(),
-                        preview
-                );
+                if (!pushRecipients.isEmpty()) {
+                    eventPublisher.publishNewMessage(
+                            roomId,
+                            saved.getMessageId(),
+                            senderId,
+                            pushRecipients,
+                            saved.isE2ee(),
+                            preview
+                    );
+                }
             }
         } catch (Exception notifyEx) {
             // Do not rollback the message just because notifications failed
@@ -196,12 +206,24 @@ public class MessageService {
         return saved;
     }
 
-     public interface DirectRoomPolicy {
+    public interface DirectRoomPolicy {
         boolean isDirect(Long roomId);
         Long peer(Long roomId, Long userId);
         boolean maySend(Long senderId, Long peerUserId);
     }
 
+    private boolean shouldPush(Long recipientId, Long roomId) {
+        if (presenceRegistry == null) {
+            return true;
+        }
+        boolean online = presenceRegistry.isOnline(recipientId);
+        boolean viewingSameRoom = presenceRegistry.isViewingRoom(recipientId, roomId);
+        if (!online) {
+            return true;
+        }
+        return !viewingSameRoom;
+    }
+    
     public MessageDto handlePrivateMessage(MessageDto dto) throws AccessDeniedException {
         String senderId = dto.getSenderId();
         Long receiverId = Long.valueOf(dto.getReceiverId());

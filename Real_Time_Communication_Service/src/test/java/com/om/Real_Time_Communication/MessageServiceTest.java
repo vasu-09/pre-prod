@@ -8,6 +8,7 @@ import com.om.Real_Time_Communication.dto.ChatSendDto;
 import com.om.Real_Time_Communication.dto.MessageDto;
 import com.om.Real_Time_Communication.models.ChatMessage;
 import com.om.Real_Time_Communication.models.*;
+import com.om.Real_Time_Communication.presence.PresenceRegistry;
 import com.om.Real_Time_Communication.security.SessionRegistry;
 import com.om.Real_Time_Communication.service.*;
 import com.om.Real_Time_Communication.service.MessageService.DirectRoomPolicy;
@@ -49,6 +50,7 @@ class MessageServiceTest {
     @Mock RoomMembershipService membership;
     @Mock UndeliveredMessageStore undeliveredStore;
     @Mock InboxDeliveryService inboxDeliveryService;
+    @Mock PresenceRegistry presenceRegistry;
 
     @InjectMocks
     MessageService service;
@@ -196,6 +198,9 @@ class MessageServiceTest {
         when(aclService.canPublish(1L, Long.valueOf("10"))).thenReturn(true);
         when(directPolicy.isDirect(10L)).thenReturn(false);
         when(membership.memberIds(10L)).thenReturn(List.of(1L,2L,3L));
+        when(presenceRegistry.isOnline(2L)).thenReturn(false);
+        when(presenceRegistry.isOnline(3L)).thenReturn(false);
+        when(presenceRegistry.isViewingRoom(anyLong(), anyLong())).thenReturn(false);
 
         service.saveInbound(10L, 1L, dto);
 
@@ -203,6 +208,42 @@ class MessageServiceTest {
         verify(eventPublisher).publishNewMessage(eq(10L), eq("g1"), eq(1L), captor.capture(), eq(true), isNull());
         verify(inboxDeliveryService).sendInboxEvent(saved);
         assertEquals(List.of(2L,3L), captor.getValue());
+    }
+
+    @Test
+    void saveInbound_skipsPushForOnlineViewerInSameRoom() {
+        ChatSendDto dto = new ChatSendDto();
+        dto.setMessageId("g2");
+        dto.setType(MessageType.TEXT);
+        dto.setE2ee(true);
+        dto.setAlgo("AES-GCM");
+        dto.setKeyRef("k2");
+        dto.setIv(new byte[] {1, 2, 3});
+        dto.setCiphertext(new byte[] {4, 5, 6});
+
+        ChatMessage saved = new ChatMessage();
+        saved.setMessageId("g2");
+        saved.setRoomId(10L);
+        saved.setSenderId(1L);
+        saved.setServerTs(Instant.now());
+        saved.setType(MessageType.TEXT);
+        saved.setE2ee(true);
+        when(chatMessageRepository.findByRoomIdAndMessageId(10L, "g2")).thenReturn(Optional.empty());
+        when(chatMessageRepository.save(any())).thenReturn(saved);
+        when(aclService.canPublish(1L, Long.valueOf("10"))).thenReturn(true);
+        when(directPolicy.isDirect(10L)).thenReturn(false);
+        when(membership.memberIds(10L)).thenReturn(List.of(1L,2L,3L));
+
+        when(presenceRegistry.isOnline(2L)).thenReturn(true);
+        when(presenceRegistry.isViewingRoom(2L, 10L)).thenReturn(true);
+        when(presenceRegistry.isOnline(3L)).thenReturn(true);
+        when(presenceRegistry.isViewingRoom(3L, 10L)).thenReturn(false);
+
+        service.saveInbound(10L, 1L, dto);
+
+        ArgumentCaptor<List<Long>> captor = ArgumentCaptor.forClass(List.class);
+        verify(eventPublisher).publishNewMessage(eq(10L), eq("g2"), eq(1L), captor.capture(), eq(true), isNull());
+        assertEquals(List.of(3L), captor.getValue());
     }
 }
 

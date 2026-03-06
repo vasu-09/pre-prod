@@ -1,6 +1,5 @@
 package com.om.Real_Time_Communication.presence;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -17,12 +16,21 @@ public class PresenceRegistry {
         private String deviceId;
         private Instant lastSeen;
         private boolean online;
+        private String appState;
+        private Long activeRoomId;
 
-        public Presence(Long userId, String deviceId, Instant lastSeen, boolean online) {
+        public Presence(Long userId,
+                        String deviceId,
+                        Instant lastSeen,
+                        boolean online,
+                        String appState,
+                        Long activeRoomId) {
             this.userId = userId;
             this.deviceId = deviceId;
             this.lastSeen = lastSeen;
             this.online = online;
+            this.appState = appState;
+            this.activeRoomId = activeRoomId;
         }
 
         public Long getUserId() {
@@ -56,6 +64,22 @@ public class PresenceRegistry {
         public void setOnline(boolean online) {
             this.online = online;
         }
+
+        public String getAppState() {
+            return appState;
+        }
+
+        public void setAppState(String appState) {
+            this.appState = appState;
+        }
+
+        public Long getActiveRoomId() {
+            return activeRoomId;
+        }
+
+        public void setActiveRoomId(Long activeRoomId) {
+            this.activeRoomId = activeRoomId;
+        }
     }
 
     // key: userId:deviceId
@@ -64,14 +88,22 @@ public class PresenceRegistry {
     private static final long EXPIRE_MS = 30_000L;
 
     public Presence touch(Long userId, String deviceId) {
+        return touch(userId, deviceId, null);
+    }
+
+    public Presence touch(Long userId, String deviceId, Long activeRoomId) {
         String key = userId + ":" + deviceId;
         Presence p = map.get(key);
         if (p == null) {
-            p = new Presence(userId, deviceId, Instant.now(), true);
+            p = new Presence(userId, deviceId, Instant.now(), true, "FOREGROUND", activeRoomId);
             map.put(key, p);
         } else {
             p.setLastSeen(Instant.now());
             p.setOnline(true);
+            p.setAppState("FOREGROUND");
+            if (activeRoomId != null) {
+                p.setActiveRoomId(activeRoomId);
+            }
         }
         return p;
     }
@@ -79,10 +111,47 @@ public class PresenceRegistry {
     public Presence markOffline(Long userId, String deviceId) {
         String key = userId + ":" + deviceId;
         Presence p = map.get(key);
-        if (p != null) p.setOnline(false);
+        if (p != null) {
+            p.setOnline(false);
+            p.setAppState("BACKGROUND");
+            p.setActiveRoomId(null);
+        }
         return p;
     }
 
+    public void setActiveRoom(Long userId, String deviceId, Long roomId) {
+        Presence p = touch(userId, deviceId, roomId);
+        p.setActiveRoomId(roomId);
+    }
+
+    public void clearActiveRoom(Long userId, String deviceId, Long roomId) {
+        String key = userId + ":" + deviceId;
+        Presence p = map.get(key);
+        if (p != null && java.util.Objects.equals(p.getActiveRoomId(), roomId)) {
+            p.setActiveRoomId(null);
+        }
+    }
+
+    public boolean isOnline(Long userId) {
+        for (Presence p : map.values()) {
+            if (userId.equals(p.getUserId()) && p.isOnline()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public boolean isViewingRoom(Long userId, Long roomId) {
+        for (Presence p : map.values()) {
+            if (userId.equals(p.getUserId())
+                    && p.isOnline()
+                    && java.util.Objects.equals(roomId, p.getActiveRoomId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
     public List<Presence> snapshotForUser(Long userId) {
         List<Presence> out = new ArrayList<Presence>();
         for (Presence p : map.values()) if (p.getUserId().equals(userId)) out.add(p);

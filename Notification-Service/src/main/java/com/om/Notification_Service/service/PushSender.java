@@ -40,7 +40,7 @@ public class PushSender {
 
 
     public void sendPush(EventMessage event, Long userId, Long attempt) {
-        List<String> fcmTokens = getFcmTokensForUser(event.getUserId());
+        List<String> fcmTokens = getFcmTokensForUser(userId);
         if (fcmTokens == null || fcmTokens.isEmpty()) {
             logger.warn("No FCM token found for user {}", userId);
             return;
@@ -183,12 +183,12 @@ public class PushSender {
             } catch (FirebaseMessagingException e) {
                 MessagingErrorCode code = e.getMessagingErrorCode();
                 if (code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT) {
-                    logger.warn("Removing invalid FCM token for user {} token {} due to {}", event.getUserId(), fcmToken, code);
-                    removeFcmTokenForUser(event.getUserId());
+                    logger.warn("Removing invalid FCM token for user {} token {} due to {}", userId, fcmToken, code);
+                    removeFcmTokenForUser(userId);
                 } else if (code == MessagingErrorCode.UNAVAILABLE || code == MessagingErrorCode.INTERNAL) {
-                    logger.warn("Transient error sending to user {} token {}: {}", event.getUserId(), fcmToken, code);
+                    logger.warn("Transient error sending to user {} token {}: {}", userId, fcmToken, code);
                     if (attempt < MAX_RETRIES) {
-                        scheduleRetry(event, attempt + 1);
+                        scheduleRetry(event, userId, attempt + 1);
                     } else {
                         logger.error("Max retry attempts reached for user {} token {}", userId, fcmToken);
                     }
@@ -201,9 +201,9 @@ public class PushSender {
 
     }
 
-    private void scheduleRetry(EventMessage event, Long attempt) {
+    private void scheduleRetry(EventMessage event, Long userId, Long attempt) {
         long delay = (long) Math.pow(2, attempt);
-        scheduler.schedule(() -> sendPush(event, attempt), delay, TimeUnit.SECONDS);
+        scheduler.schedule(() -> sendPush(event, userId, attempt), delay, TimeUnit.SECONDS);
     }
 
     private void removeFcmTokenForUser(Long userId) {
