@@ -2,10 +2,12 @@ package com.om.backend.services;
 
 import com.om.backend.Dto.SessionDto;
 import com.om.backend.Dto.SessionMappers;
+import com.om.backend.Dto.RegisterUserDeviceRequest;
 import com.om.backend.Model.User;
 import com.om.backend.Model.UserSession;
 import com.om.backend.Repositories.UserRepository;
 import com.om.backend.Repositories.UserSessionRepository;
+import com.om.backend.client.NotificationDeviceClient;
 
 import com.om.backend.util.JwtIntrospection;
 import com.om.backend.util.Hashes;
@@ -23,14 +25,15 @@ import java.util.stream.Collectors;
 public class UserSessionService {
 
 
-   private final UserRepository userRepository;
+    private final UserRepository userRepository;
     private final UserSessionRepository sessionRepo;
+    private final NotificationDeviceClient notificationDeviceClient;
 
-
-   @Autowired
-    public UserSessionService(UserRepository userRepository, UserSessionRepository sessionRepo){
+    @Autowired
+    public UserSessionService(UserRepository userRepository, UserSessionRepository sessionRepo, NotificationDeviceClient notificationDeviceClient){
         this.userRepository = userRepository;
         this.sessionRepo = sessionRepo;
+        this.notificationDeviceClient = notificationDeviceClient;
     }
 
     // -------- creators used by login --------
@@ -81,6 +84,17 @@ public class UserSessionService {
         if (StringUtils.hasText(platform))    s.setPlatform(platform);
         s.setLastSeenAt(Instant.now());
         sessionRepo.save(s);
+
+        notificationDeviceClient.upsertDevice(
+                new RegisterUserDeviceRequest(
+                        userId,
+                        sessionId,
+                        fcmToken,
+                        platform,
+                        deviceModel,
+                        appVersion
+                )
+        );
     }
 
     // -------- refresh token lifecycle (store hash/jti/exp on session) --------

@@ -23,7 +23,7 @@ export default function AudioCallReceivingScreen() {
     return Number.isNaN(parsed) ? null : parsed;
   }, [callIdRaw]);
 
-  const { declineCall, markRinging } = useCallSignalingHook({
+  const { declineCall } = useCallSignalingHook({
     callId,
   });
 
@@ -39,15 +39,10 @@ export default function AudioCallReceivingScreen() {
     }
   };
 
-  const handleAccept = async () => {
+  const handleAccept = () => {
     if (!callId) {
       Alert.alert('Call unavailable', 'Unable to open this incoming call.');
       return;
-    }
-    try {
-      await markRinging(callId);
-    } catch (err) {
-      console.warn('Failed to mark incoming audio call as ringing', err);
     }
     router.replace({
       pathname: '/screens/CallScreen',

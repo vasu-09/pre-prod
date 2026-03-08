@@ -1,30 +1,131 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    SafeAreaView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  SafeAreaViewBase,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
+import useCallSignalingHook from '../hooks/useCallSignaling';
+
 export default function VideoCallScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { name = 'Harika' } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+
+  const pickParam = value => (Array.isArray(value) ? value[0] : value);
+
+  const name = pickParam(params?.name) ?? 'Unknown';
+  const callIdRaw = pickParam(params?.callId);
+  const role = pickParam(params?.role) ?? 'caller';
+  const callId = callIdRaw != null ? Number(callIdRaw) : null;
 
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [permission, requestPermission] = useCameraPermissions();
+  const [statusText, setStatusText] = useState(
+    role === 'callee' ? 'Incoming video call…' : 'Calling…',
+  );
+  const hasEndedRef = useRef(false);
+  const joinedCallRef = useRef(null);
+
+  const handleCallEvent = useCallback(
+    event => {
+      if (!event) {
+        return;
+      }
+
+      const eventCallId =
+        typeof event.callId === 'number' ? event.callId : Number(event.callId ?? callId);
+
+      if (callId && !Number.isNaN(eventCallId) && eventCallId !== callId) {
+        return;
+      }
+
+      switch (event.type) {
+        case 'call.ringing':
+          if (role === 'caller') {
+            setStatusText('Ringing…');
+          }
+          break;
+        case 'call.answer':
+        case 'call.join':
+          setStatusText('Connected');
+          break;
+        case 'call.decline':
+          if (!hasEndedRef.current) {
+            hasEndedRef.current = true;
+            Alert.alert('Call declined', 'The other participant declined the call.');
+            router.back();
+          }
+          break;
+        case 'call.end':
+        case 'call.fail':
+          if (!hasEndedRef.current) {
+            hasEndedRef.current = true;
+            router.back();
+          }
+          break;
+        default:
+          break;
+      }
+    },
+    [callId, role, router],
+  );
+
+  const { joinCall, leaveCall, endCall, markRinging } = useCallSignalingHook({
+    callId,
+    onCallEvent: handleCallEvent,
+  });
 
   useEffect(() => {
-    if (!permission?.granted) requestPermission();
+    if (!permission?.granted) {
+      requestPermission();
+    };
   }, [permission, requestPermission]);
 
+  useEffect(() => {
+    if (!callId || Number.isNaN(callId) || joinedCallRef.current === callId) {
+      return;
+    }
+
+    joinedCallRef.current = callId;
+    hasEndedRef.current = false;
+
+    joinCall(callId).catch(err => console.warn('Failed to join video call', err));
+
+    if (role === 'callee') {
+      markRinging(callId).catch(err => console.warn('Failed to mark video ringing', err));
+    }
+
+    return () => {
+      if (joinedCallRef.current === callId) {
+        joinedCallRef.current = null;
+      }
+      leaveCall(callId).catch(err => console.warn('Failed to leave video call', err));
+    };
+  }, [callId, joinCall, leaveCall, markRinging, role]);
+
+  const handleEnd = useCallback(async () => {
+    try {
+      if (callId && !Number.isNaN(callId)) {
+        hasEndedRef.current = true;
+        await endCall(callId);
+      }
+    } catch (err) {
+      console.warn('Failed to end video call', err);
+    } finally {
+      router.back();
+    }
+  }, [callId, endCall, router]);
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaViewBase style={styles.safeArea}>
       <View style={styles.cameraContainer}>
         {videoEnabled && permission?.granted ? (
           <CameraView style={StyleSheet.absoluteFill} facing="front" />
@@ -35,10 +136,13 @@ export default function VideoCallScreen() {
         )}
 
         <View style={[styles.header, { paddingTop: insets.top }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <TouchableOpacity onPress={handleEnd} style={styles.backBtn}>
             <Icon name="arrow-back" size={28} color="#1f6ea7" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>{name}</Text>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.headerTitle}>{name}</Text>
+            <Text style={styles.headerSubtitle}>{statusText}</Text>
+          </View>
         </View>
       </View>
 
@@ -47,16 +151,16 @@ export default function VideoCallScreen() {
           <Icon name="mic-off" size={28} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.controlBtn} onPress={() => setVideoEnabled(v => !v)}>
-          <Icon name={videoEnabled ? "videocam" : "videocam-off"} size={28} color="#fff" />
+          <Icon name={videoEnabled ? 'videocam' : 'videocam-off'} size={28} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.controlBtn}>
           <Icon name="volume-up" size={28} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.controlBtn, styles.endCall]}>
+        <TouchableOpacity style={[styles.controlBtn, styles.endCall]} onPress={handleEnd}>
           <Icon name="call-end" size={28} color="#fff" />
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </SafeAreaViewBase>
   );
 }
 
@@ -86,13 +190,22 @@ const styles = StyleSheet.create({
   backBtn: {
     padding: 4,
   },
+  headerTextWrap: {
+    flex: 1,
+    marginRight: 28,
+  },
   headerTitle: {
     flex: 1,
     textAlign: 'center',
     fontSize: 18,
     fontWeight: '600',
     color: '#fff',
-    marginRight: 28,
+    },
+  headerSubtitle: {
+    marginTop: 2,
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#E2E8F0',
   },
   controls: {
     flex: 1,

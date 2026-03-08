@@ -21,7 +21,7 @@ export default function VideoCallReceivingScreen() {
     return Number.isNaN(parsed) ? null : parsed;
   }, [callIdRaw]);
 
-  const { declineCall, markRinging } = useCallSignalingHook({ callId });
+  const { declineCall } = useCallSignalingHook({ callId });
 
   const handleDecline = async () => {
     try {
@@ -35,15 +35,10 @@ export default function VideoCallReceivingScreen() {
     }
   };
 
-  const handleAccept = async () => {
+  const handleAccept = () => {
     if (!callId) {
       Alert.alert('Call unavailable', 'Unable to open this incoming call.');
       return;
-    }
-    try {
-      await markRinging(callId);
-    } catch (err) {
-      console.warn('Failed to mark incoming video call as ringing', err);
     }
     router.replace({
       pathname: '/screens/VideoCallScreen',

@@ -1029,20 +1029,28 @@ const makeReplyPayload = useCallback(
       if (!callId || Number.isNaN(callId) || activeCallIdRef.current === callId) {
         return;
       }
+
       const fromId = typeof event.from === 'number' ? event.from : Number(event.from);
       const calleeIds = Array.isArray(event.callees)
         ? event.callees
             .map(value => (typeof value === 'number' ? value : Number(value)))
             .filter(value => !Number.isNaN(value))
         : [];
-      const participants = [...calleeIds, fromId].filter(value => !Number.isNaN(value));
-      if (currentUserId != null && participants.length && !participants.includes(currentUserId)) {
+
+      const isCaller = currentUserId != null && fromId === currentUserId;
+      const isParticipant =
+        isCaller || (currentUserId != null && calleeIds.includes(currentUserId));
+
+      if (!isParticipant) {
         return;
       }
+
       activeCallIdRef.current = callId;
-      const pathname = isVideoCallEvent(event)
-        ? '/screens/VideoCallReceivingScreen'
-        : '/screens/AudioCallReceivingScreen';
+      const isVideo = isVideoCallEvent(event);
+
+      const pathname = isCaller
+        ? (isVideo ? '/screens/VideoCallScreen' : '/screens/CallScreen')
+        : (isVideo ? '/screens/VideoCallReceivingScreen' : '/screens/AudioCallReceivingScreen');
 
       router.push({
         pathname,
@@ -1051,23 +1059,17 @@ const makeReplyPayload = useCallback(
           roomId: roomId ? String(roomId) : '',
           name: chatTitle,
           ...(avatarUri ? { image: avatarUri } : {}),
-          role: fromId === currentUserId ? 'caller' : 'callee',
+          role: isCaller ? 'caller' : 'callee',
           peerId: peerId != null ? String(peerId) : undefined,
         },
       });
-
-      setTimeout(() => {
-        if (activeCallIdRef.current === callId) {
-          activeCallIdRef.current = null;
-        }
-      }, 3000);
     },
     [avatarUri, chatTitle, currentUserId, isVideoCallEvent, peerId, roomId, router],
   );
 
   const handleCallRoomEvent = useCallback(
     event => {
-      if (!event || (event.type !== 'call.invite' && event.type !== 'call.offer')) {
+      if (!event || event.type !== 'call.invite') {
         return;
       }
       const eventRoomId =
@@ -1102,7 +1104,7 @@ const makeReplyPayload = useCallback(
         }
         return;
       }
-      if (event.type === 'call.offer' || event.type === 'call.invite') {
+      if (event.type === 'call.invite') {
         routeIncomingCall(event);
       }
     },

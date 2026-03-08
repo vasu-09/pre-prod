@@ -200,7 +200,7 @@ public class UserService {
         return userprofile;
     }
 
-    private String resolveAvatarUrl(User user) {
+    public String resolveAvatarUrl(User user) {
         if (user == null || !StringUtils.hasText(user.getAvatarKey())) {
             return null;
         }

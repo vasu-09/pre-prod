@@ -1,38 +1,12 @@
-package com.om.Notification_Service.models;
+package com.om.Notification_Service.dto;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
-import lombok.Setter;
-
-@Entity
-@Table(name = "user_devices")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-public class UserDevice {
-    @Id
-    @GeneratedValue
-    private Long id;
+public class RegisterUserDeviceRequest {
     private Long userId;
     private String sessionId;
     private String fcmToken;
     private String platform;
     private String deviceModel;
     private String appVersion;
-
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
 
     public Long getUserId() {
         return userId;
@@ -42,20 +16,20 @@ public class UserDevice {
         this.userId = userId;
     }
 
-    public String getFcmToken() {
-        return fcmToken;
-    }
-
-    public void setFcmToken(String fcmToken) {
-        this.fcmToken = fcmToken;
-    }
-
     public String getSessionId() {
         return sessionId;
     }
 
     public void setSessionId(String sessionId) {
         this.sessionId = sessionId;
+    }
+
+    public String getFcmToken() {
+        return fcmToken;
+    }
+
+    public void setFcmToken(String fcmToken) {
+        this.fcmToken = fcmToken;
     }
 
     public String getPlatform() {

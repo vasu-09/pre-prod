@@ -1,6 +1,7 @@
 package com.om.backend;
 
 import com.om.backend.Model.User;
+import com.om.backend.client.NotificationDeviceClient;
 import com.om.backend.Repositories.UserRepository;
 import com.om.backend.Repositories.UserSessionRepository;
 import com.om.backend.services.UserSessionService;
@@ -12,6 +13,7 @@ import org.springframework.context.annotation.Import;
 
 import static org.junit.jupiter.api.Assertions.*;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.boot.test.mock.mockito.MockBean;
 
 @DataJpaTest
 @Import(UserSessionService.class)
@@ -24,6 +26,9 @@ class SingleDeviceLoginTest {
     @Autowired
     UserRepository userRepo;
 
+    @MockBean
+    NotificationDeviceClient notificationDeviceClient;
+    
     @Autowired
     UserSessionRepository sessionRepo;
 

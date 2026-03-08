@@ -78,7 +78,14 @@ public class NotificationService {
 
         for (Long recipientId : recipients) {
             Notification n = new Notification();
-            n.setExternalEventId(event.getData() != null ? String.valueOf(event.getData().get("eventId")) : null);
+            
+            String externalEventId = buildExternalEventId(event, recipientId);
+            if (repo.existsByExternalEventId(externalEventId)) {
+                log.info("Skipping duplicate notification externalEventId={}", externalEventId);
+                continue;
+            }
+
+            n.setExternalEventId(externalEventId);
             n.setSource(event.getType());
             n.setUserId(recipientId);
             n.setType(event.getType());
@@ -87,6 +94,24 @@ public class NotificationService {
 
             pushSender.sendPush(event, recipientId);
         }
+    }
+
+    private String buildExternalEventId(EventMessage event, Long recipientId) {
+        String type = event.getType() != null ? event.getType() : "UNKNOWN";
+
+        if (event.getData() != null) {
+            Object messageId = event.getData().get("messageId");
+            if (messageId != null) {
+                return "rtc:" + type + ":" + messageId + ":user:" + recipientId;
+            }
+
+            Object eventId = event.getData().get("eventId");
+            if (eventId != null) {
+                return String.valueOf(eventId) + ":user:" + recipientId;
+            }
+        }
+
+        return "generated:" + type + ":" + recipientId + ":" + UUID.randomUUID();
     }
 
     private String json(Object obj) {

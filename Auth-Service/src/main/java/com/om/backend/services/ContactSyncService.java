@@ -19,12 +19,13 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 public class ContactSyncService {
-   private static final Logger log = LoggerFactory.getLogger(ContactSyncService.class);
-   private static final Pattern PHONE_ALLOWED_CHARS = Pattern.compile("[^0-9+]");
+    private static final Logger log = LoggerFactory.getLogger(ContactSyncService.class);
+    private static final Pattern PHONE_ALLOWED_CHARS = Pattern.compile("[^0-9+]");
 
-    private final UserRepository userRepo;
-    private final PhoneNumberCanonicalizer phoneCanonicalizer;
-
+   private final UserRepository userRepo;
+   private final PhoneNumberCanonicalizer phoneCanonicalizer;
+   private final UserService userservice;
+   
     public List<ContactMatchDto> match(List<String> rawPhones) {
         if (rawPhones == null || rawPhones.isEmpty()) {
             log.info("Contact sync called with no phone numbers to process");
@@ -63,7 +64,7 @@ public class ContactSyncService {
             users.addAll(userRepo.findByPhoneNumberCanonicalDigitsIn(List.copyOf(canonicalDigits)));
         }
         List<ContactMatchDto> matches = users.stream()
-                .map(u -> new ContactMatchDto(u.getId(), u.getPhoneNumber(), u.getAvatarUrl()))
+                .map(u -> new ContactMatchDto(u.getId(), u.getPhoneNumber(), userservice.resolveAvatarUrl(u)))
                 .toList();
 
         log.info("Contact sync returning {} matched phone numbers", matches.size());

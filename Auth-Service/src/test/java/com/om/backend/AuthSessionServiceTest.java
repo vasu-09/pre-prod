@@ -6,6 +6,7 @@ import com.om.backend.Dto.SessionDto;
 import com.om.backend.Repositories.OtpRepository;
 import com.om.backend.Repositories.UserRepository;
 import com.om.backend.Repositories.UserSessionRepository;
+import com.om.backend.client.NotificationDeviceClient;
 import com.om.backend.services.OtpService;
 import com.om.backend.services.UserSessionService;
 import com.om.backend.util.OtpMessageBuilder;
@@ -82,7 +83,8 @@ class AuthSessionServiceTest {
 
         OtpService.JwtSigner signer = new DummySigner(clock);
         otpService = new OtpService(redis, props, sms, builder, otpRepo, userRepo, signer, clock);
-        sessionService = new UserSessionService(userRepo, sessionRepo);
+        NotificationDeviceClient notificationDeviceClient = Mockito.mock(NotificationDeviceClient.class);
+        sessionService = new UserSessionService(userRepo, sessionRepo, notificationDeviceClient);
     }
 
     static class DummySigner implements OtpService.JwtSigner {
