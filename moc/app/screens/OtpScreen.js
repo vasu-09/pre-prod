@@ -6,6 +6,7 @@ import { getDeviceMetadata } from '../services/deviceMetadata';
 import apiClient, { apiBaseURL } from '../services/apiClient';
 import { saveSession } from '../services/authStorage';
 import { normalizeIndianPhoneNumber } from '../services/phoneNumber';
+import { ensurePushToken } from '../services/pushRegistration';
 
 const OtpScreen = () => {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -44,7 +45,10 @@ const OtpScreen = () => {
       setError('');
       setMessage('');
 
-       const metadata = await getDeviceMetadata();
+      const [metadata, pushToken] = await Promise.all([
+        getDeviceMetadata(),
+        ensurePushToken({ requestPermission: true }),
+      ]);
 
       const response = await apiClient.post('/auth/otp/verify', {
         phone: phoneNumber,
@@ -52,7 +56,7 @@ const OtpScreen = () => {
         deviceModel: route?.params?.deviceModel ?? metadata.deviceModel,
         platform: route?.params?.platform ?? metadata.platform,
         appVersion: route?.params?.appVersion ?? metadata.appVersion,
-        fcmToken: route?.params?.fcmToken ?? metadata.fcmToken,
+        fcmToken: route?.params?.fcmToken ?? pushToken ?? metadata.fcmToken,
       });
      const { userId, username, sessionId, accessToken, refreshToken, issuedAt } = response.data ?? {};
 

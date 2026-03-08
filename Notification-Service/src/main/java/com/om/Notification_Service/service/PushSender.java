@@ -20,7 +20,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
--
 @Service
 public class PushSender {
 
@@ -199,7 +198,7 @@ public class PushSender {
         }
         userDeviceRepository.deleteByUserIdAndFcmToken(userId, fcmToken);
     }
-    
+
     private List<String> getFcmTokensForUser(Long userId) {
         List<String> rawTokens = userDeviceRepository.findByUserId(userId)
                 .stream()

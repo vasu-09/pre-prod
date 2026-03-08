@@ -9,6 +9,7 @@ import {
   upsertConversationInDb,
 } from '../services/database';
 import { fetchPendingMessages } from '../services/messagesService';
+import { syncPushTokenWithBackend } from '../services/pushRegistration';
 import stompClient from '../services/stompClient';
 
 export type RoomLastMessage = {
@@ -160,6 +161,16 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     };
   }, []);
 
+
+  useEffect(() => {
+    if (!sessionReady || !accessToken) {
+      return;
+    }
+
+    syncPushTokenWithBackend().catch(err =>
+      console.warn('Failed to sync push token with backend after session bootstrap', err),
+    );
+  }, [sessionReady, accessToken]);
 
   useEffect(() => {
     getStoredUserId()
