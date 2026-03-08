@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
+import org.springframework.beans.factory.annotation.Autowired;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -198,7 +199,7 @@ public class PushSender {
         }
         userDeviceRepository.deleteByUserIdAndFcmToken(userId, fcmToken);
     }
-
+    
     private List<String> getFcmTokensForUser(Long userId) {
         List<String> rawTokens = userDeviceRepository.findByUserId(userId)
                 .stream()
@@ -217,4 +218,3 @@ public class PushSender {
         return fcmTokens;
     }
 }
-

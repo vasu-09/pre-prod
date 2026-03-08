@@ -72,10 +72,14 @@ export const ensurePushToken = async ({ requestPermission = true } = {}) => {
 };
 
 export const syncPushTokenWithBackend = async () => {
-  const [{ sessionId }, metadata] = await Promise.all([getStoredSession(), getDeviceMetadata()]);
+  const [{ accessToken, sessionId }, metadata] = await Promise.all([getStoredSession(), getDeviceMetadata()]);
+
+  if (!accessToken || !sessionId) {
+    return false;
+  }
   const token = await ensurePushToken({ requestPermission: true });
 
-  if (!sessionId || !token) {
+  if (!token) {
     return false;
   }
 
