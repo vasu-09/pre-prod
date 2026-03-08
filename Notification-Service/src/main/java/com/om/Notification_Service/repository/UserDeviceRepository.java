@@ -11,4 +11,6 @@ import java.util.List;
 @Repository
 public interface UserDeviceRepository extends JpaRepository<UserDevice, Long> {
     List<UserDevice> findByUserId(Long userId);
+
+    void deleteByUserIdAndFcmToken(Long userId, String fcmToken);
 }

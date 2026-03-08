@@ -2,15 +2,14 @@ package com.om.Notification_Service.service;
 
 import com.google.firebase.messaging.BatchResponse;
 import com.google.firebase.messaging.FirebaseMessaging;
-import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.FirebaseMessagingException;
+import com.google.firebase.messaging.MessagingErrorCode;
+import com.google.firebase.messaging.MulticastMessage;
 import com.google.firebase.messaging.Message;
 import com.google.firebase.messaging.Notification;
 import com.om.Notification_Service.dto.EventMessage;
-import com.google.firebase.messaging.MulticastMessage;
 import com.om.Notification_Service.models.UserDevice;
 import com.om.Notification_Service.repository.UserDeviceRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -21,7 +20,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-
+-
 @Service
 public class PushSender {
 
@@ -36,22 +35,18 @@ public class PushSender {
         sendPush(event, userId, 0L);
     }
 
-
-
-
     public void sendPush(EventMessage event, Long userId, Long attempt) {
         List<String> fcmTokens = getFcmTokensForUser(userId);
-        if (fcmTokens == null || fcmTokens.isEmpty()) {
+        if (fcmTokens.isEmpty()) {
             logger.warn("No FCM token found for user {}", userId);
             return;
         }
 
-        Map<String, Object> data = event.getData();
+        Map<String, Object> data = event.getData() == null ? Map.of() : event.getData();
         String title;
         String body;
 
         switch (event.getType()) {
-            // 1. Meeting Lifecycle Notifications
             case "MEETING_SCHEDULED":
                 title = "Meeting Scheduled: " + data.getOrDefault("title", "Untitled Meeting");
                 body = "Starts at " + data.getOrDefault("startTime", "Unknown time") + ", hosted by " + data.getOrDefault("hostName", "Unknown");
@@ -80,8 +75,6 @@ public class PushSender {
                 title = "Meeting Rescheduled";
                 body = "Meeting has been rescheduled to " + data.getOrDefault("newTime", "Unknown time");
                 break;
-
-            // 2. Waiting Room Notifications
             case "USER_REQUESTED_TO_JOIN_MEETING":
                 title = "Waiting Room Approval Needed";
                 body = data.getOrDefault("userName", "A user") + " wants to join your meeting.";
@@ -98,11 +91,6 @@ public class PushSender {
                 title = "User Joined Meeting";
                 body = data.getOrDefault("userName", "A user") + " has joined the meeting.";
                 break;
-
-            // 3. Meeting Started/End Notifications
-
-
-            // 4. Message & Chat Notifications
             case "NEW_MESSAGE":
                 title = "New Message from " + data.getOrDefault("senderName", "Someone");
                 body = String.valueOf(data.getOrDefault("message", ""));
@@ -111,9 +99,6 @@ public class PushSender {
                 title = "New message in #" + data.getOrDefault("groupName", "group");
                 body = data.getOrDefault("senderName", "Someone") + ": " + data.getOrDefault("message", "");
                 break;
-
-
-            // 5. Call & Video Notifications
             case "INCOMING_CALL":
                 title = "Incoming Call";
                 body = data.getOrDefault("callerName", "Someone") + " is calling you.";
@@ -126,9 +111,6 @@ public class PushSender {
                 title = "Call Ended";
                 body = "Your call has ended.";
                 break;
-
-
-            // 6. Security & Moderation
             case "ACCOUNT_LOGGED_IN_ON_ANOTHER_DEVICE":
                 title = "Security Alert";
                 body = "Your account was accessed from a new device.";
@@ -137,8 +119,6 @@ public class PushSender {
                 title = "Security Alert";
                 body = "Suspicious activity detected on your account.";
                 break;
-
-            // 8. File Sharing
             case "FILE_RECEIVED":
                 title = "File Received";
                 body = "You received a file from " + data.getOrDefault("senderName", "someone") + ".";
@@ -147,58 +127,65 @@ public class PushSender {
                 title = "Upload Failed";
                 body = "Upload failed. Tap to retry.";
                 break;
-
-            // Default fallback
             default:
                 title = "Notification";
                 body = "You have a new event: " + event.getType();
         }
 
-        for (String fcmToken : fcmTokens) {
-            Notification notification = Notification.builder()
-                    .setTitle(title)
-                    .setBody(body)
-                    .build();
+        Notification notification = Notification.builder()
+                .setTitle(title)
+                .setBody(body)
+                .build();
 
-            try {
-                if (fcmTokens.size() == 1) {
-                    Message message = Message.builder()
-                            .setToken(fcmTokens.get(0))
-                            .setNotification(notification)
-                            .putData("eventType", event.getType())
-                            .build();
-                    String response = FirebaseMessaging.getInstance().send(message);
-                    logger.info("Successfully sent push notification to user {} token {}: {}", userId, fcmToken, response);
-                    System.out.println("Successfully sent push notification: " + response);
-                } else {
-                    MulticastMessage message = MulticastMessage.builder()
-                            .addAllTokens(fcmTokens)
-                            .setNotification(notification)
-                            .putData("eventType", event.getType())
-                            .build();
-                    BatchResponse response = FirebaseMessaging.getInstance().sendMulticast(message);
-                    logger.info("Successfully sent push notifications to " + response.getSuccessCount() + "devices");
-
-                }
-            } catch (FirebaseMessagingException e) {
-                MessagingErrorCode code = e.getMessagingErrorCode();
-                if (code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT) {
-                    logger.warn("Removing invalid FCM token for user {} token {} due to {}", userId, fcmToken, code);
-                    removeFcmTokenForUser(userId);
-                } else if (code == MessagingErrorCode.UNAVAILABLE || code == MessagingErrorCode.INTERNAL) {
-                    logger.warn("Transient error sending to user {} token {}: {}", userId, fcmToken, code);
-                    if (attempt < MAX_RETRIES) {
-                        scheduleRetry(event, userId, attempt + 1);
-                    } else {
-                        logger.error("Max retry attempts reached for user {} token {}", userId, fcmToken);
+        try {
+            if (fcmTokens.size() == 1) {
+                String fcmToken = fcmTokens.get(0);
+                Message message = Message.builder()
+                        .setToken(fcmToken)
+                        .setNotification(notification)
+                        .putData("eventType", event.getType())
+                        .build();
+                String response = FirebaseMessaging.getInstance().send(message);
+                logger.info("Successfully sent push notification to user {} token {}: {}", userId, fcmToken, response);
+            } else {
+                MulticastMessage message = MulticastMessage.builder()
+                        .addAllTokens(fcmTokens)
+                        .setNotification(notification)
+                        .putData("eventType", event.getType())
+                        .build();
+                BatchResponse response = FirebaseMessaging.getInstance().sendMulticast(message);
+                logger.info("Successfully sent push notifications to {} devices for user {}", response.getSuccessCount(), userId);
+                for (int i = 0; i < response.getResponses().size(); i++) {
+                    if (!response.getResponses().get(i).isSuccessful()) {
+                        handleMessagingException(userId, fcmTokens.get(i), response.getResponses().get(i).getException(), event, attempt);
                     }
-                } else {
-                    logger.error("Failed to send FCM message to user {} token {}: {}", userId, fcmToken, code, e);
                 }
             }
+            } catch (FirebaseMessagingException e) {
+            String maybeToken = fcmTokens.size() == 1 ? fcmTokens.get(0) : "<multicast>";
+            handleMessagingException(userId, maybeToken, e, event, attempt);
         }
+    }
 
-
+    private void handleMessagingException(Long userId,
+                                          String fcmToken,
+                                          FirebaseMessagingException e,
+                                          EventMessage event,
+                                          Long attempt) {
+        MessagingErrorCode code = e.getMessagingErrorCode();
+        if (code == MessagingErrorCode.UNREGISTERED || code == MessagingErrorCode.INVALID_ARGUMENT) {
+            logger.warn("Removing invalid FCM token for user {} token {} due to {}", userId, fcmToken, code);
+            removeFcmTokenForUser(userId, fcmToken);
+        } else if (code == MessagingErrorCode.UNAVAILABLE || code == MessagingErrorCode.INTERNAL) {
+            logger.warn("Transient error sending to user {} token {}: {}", userId, fcmToken, code);
+            if (attempt < MAX_RETRIES) {
+                scheduleRetry(event, userId, attempt + 1);
+            } else {
+                logger.error("Max retry attempts reached for user {} token {}", userId, fcmToken);
+            }
+        } else {
+            logger.error("Failed to send FCM message to user {} token {}: {}", userId, fcmToken, code, e);
+        }
     }
 
     private void scheduleRetry(EventMessage event, Long userId, Long attempt) {
@@ -206,14 +193,29 @@ public class PushSender {
         scheduler.schedule(() -> sendPush(event, userId, attempt), delay, TimeUnit.SECONDS);
     }
 
-    private void removeFcmTokenForUser(Long userId) {
-        // Remove the token from persistent storage
+    private void removeFcmTokenForUser(Long userId, String fcmToken) {
+        if (fcmToken == null || fcmToken.isBlank()) {
+            return;
+        }
+        userDeviceRepository.deleteByUserIdAndFcmToken(userId, fcmToken);
     }
-    private List<String> getFcmTokensForUser (Long userId){
-        return userDeviceRepository.findByUserId(userId)
+    
+    private List<String> getFcmTokensForUser(Long userId) {
+        List<String> rawTokens = userDeviceRepository.findByUserId(userId)
                 .stream()
                 .map(UserDevice::getFcmToken)
+                .filter(token -> token != null && !token.isBlank())
                 .toList();
+
+        List<String> fcmTokens = rawTokens.stream()
+                .filter(token -> !token.startsWith("ExponentPushToken["))
+                .toList();
+
+        if (rawTokens.size() != fcmTokens.size()) {
+            logger.warn("Skipping {} Expo push token(s) for user {} because PushSender expects native FCM tokens", rawTokens.size() - fcmTokens.size(), userId);
+        }
+
+        return fcmTokens;
     }
 }
 
