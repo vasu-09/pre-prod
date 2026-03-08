@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import callSignaling, {
   CallAnswerPayload,
@@ -40,42 +40,77 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
     onTurnCredentials,
   } = options;
 
-  useEffect(() => {
-    if (!roomId || !onRoomEvent) {
-      return;
-    }
-    return callSignaling.subscribeRoom(roomId, onRoomEvent);
-  }, [roomId, onRoomEvent]);
+  const onRoomEventRef = useRef<typeof onRoomEvent>(onRoomEvent);
+  const onCallEventRef = useRef<typeof onCallEvent>(onCallEvent);
+  const onBufferedCallEventRef = useRef<typeof onBufferedCallEvent>(onBufferedCallEvent);
+  const onQueueEventRef = useRef<typeof onQueueEvent>(onQueueEvent);
+  const onTurnCredentialsRef = useRef<typeof onTurnCredentials>(onTurnCredentials);
 
   useEffect(() => {
-    if (!callId || !onCallEvent) {
-      return;
-    }
-    return callSignaling.subscribeCall(callId, onCallEvent);
-  }, [callId, onCallEvent]);
+    onRoomEventRef.current = onRoomEvent;
+  }, [onRoomEvent]);
 
   useEffect(() => {
-    if (!callId || !onBufferedCallEvent) {
-      return;
-    }
-    return callSignaling.subscribeBufferedCallQueue(callId, onBufferedCallEvent);
-  }, [callId, onBufferedCallEvent]);
+    onCallEventRef.current = onCallEvent;
+  }, [onCallEvent]);
 
   useEffect(() => {
-    if (!onQueueEvent) {
+    onBufferedCallEventRef.current = onBufferedCallEvent;
+  }, [onBufferedCallEvent]);
+
+  useEffect(() => {
+      onQueueEventRef.current = onQueueEvent;
+    }, [onQueueEvent]);
+
+    useEffect(() => {
+      onTurnCredentialsRef.current = onTurnCredentials;
+    }, [onTurnCredentials]);
+
+    useEffect(() => {
+      if (!roomId || !onRoomEventRef.current) {
       return;
     }
-    const unsubscribe = callSignaling.subscribeQueue(onQueueEvent);
+    return callSignaling.subscribeRoom(roomId, event => {
+      onRoomEventRef.current?.(event);
+    });
+  }, [roomId]);
+
+  useEffect(() => {
+    if (!callId || !onCallEventRef.current) {
+      return;
+    }
+    return callSignaling.subscribeCall(callId, event => {
+      onCallEventRef.current?.(event);
+    });
+  }, [callId]);
+
+  useEffect(() => {
+    if (!callId || !onBufferedCallEventRef.current) {
+      return;
+    }
+    return callSignaling.subscribeBufferedCallQueue(callId, event => {
+      onBufferedCallEventRef.current?.(event);
+    });
+  }, [callId]);
+
+  useEffect(() => {
+    if (!onQueueEventRef.current) {
+      return;
+    }
+    const unsubscribe = callSignaling.subscribeQueue(event => {
+      onQueueEventRef.current?.(event);
+    });
     return () => unsubscribe();
-  }, [onQueueEvent]);
+  }, []);
 
   useEffect(() => {
-    if (!onTurnCredentials) {
+    if (!onTurnCredentialsRef.current) {
       return;
     }
-    const unsubscribe = callSignaling.subscribeTurn(onTurnCredentials);
-    return () => unsubscribe();
-  }, [onTurnCredentials]);
+    const unsubscribe = callSignaling.subscribeTurn(credentials => {
+      onTurnCredentialsRef.current?.(credentials);
+    });
+  }, []);
 
   const sendInvite = useCallback(
     (targetRoomId: number, calleeIds: number[], { group }: { group?: boolean } = {}) => {

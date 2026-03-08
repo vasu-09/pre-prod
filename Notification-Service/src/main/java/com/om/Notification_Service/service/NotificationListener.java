@@ -2,7 +2,6 @@ package com.om.Notification_Service.service;
 
 import com.om.Notification_Service.config.RabbitConfig;
 import com.om.Notification_Service.dto.EventMessage;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.om.Notification_Service.dto.ListDeletedEvent;
 import com.om.Notification_Service.dto.ListNameChangedEvent;
 import com.om.Notification_Service.dto.RecipientsAddedToListEvent;
@@ -14,19 +13,22 @@ import org.springframework.amqp.rabbit.annotation.RabbitHandler;
 import org.springframework.amqp.support.AmqpHeaders;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
+import java.util.HashMap;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @RabbitListener(queues = RabbitConfig.QUEUE, ackMode = "MANUAL")
 public class NotificationListener {
 
     private final NotificationService notificationService;
-    private final ObjectMapper objectMapper;
-
+    
     private static final Logger log = LoggerFactory.getLogger(NotificationListener.class);
 
-    public NotificationListener(NotificationService ns, ObjectMapper mapper) {
+    public NotificationListener(NotificationService ns) {
         this.notificationService = ns;
-        this.objectMapper = mapper;
     }
 
     @RabbitHandler
@@ -66,12 +68,13 @@ public class NotificationListener {
     }
 
     @RabbitHandler(isDefault = true)
-    public void onEvent(String message,
+    public void onEvent(Map<String, Object> payload,
                         Channel channel,
                         @Header(AmqpHeaders.DELIVERY_TAG) long tag) {
         try {
-            log.info("Received raw message: {}", message);
-            EventMessage event = objectMapper.readValue(message, EventMessage.class);
+            log.info("Received raw payload: {}", payload);
+            EventMessage event = toEventMessage(payload);
+
             if (isValid(event)) {
                 notificationService.handleEvent(event);
                 channel.basicAck(tag, false);
@@ -80,7 +83,7 @@ public class NotificationListener {
                 channel.basicAck(tag, false);
             }
         } catch (Exception e) {
-            log.error("Failed to process message {}", message, e);
+            log.error("Failed to process payload {}", payload, e);
             try {
                 channel.basicNack(tag, false, false); // route to DLQ
             } catch (Exception nackEx) {
@@ -113,6 +116,50 @@ public class NotificationListener {
         if (e.getType() == null) return false;
         // Add per-type validation, e.g., MEETING_REMINDER needs startTime, roomId, etc.
         return true;
+    }
+
+    private EventMessage toEventMessage(Map<String, Object> payload) {
+        EventMessage event = new EventMessage();
+
+        Object type = payload.get("type");
+        if (type != null) {
+            event.setType(String.valueOf(type));
+        }
+
+        Object userId = payload.get("userId");
+        if (userId instanceof Number number) {
+            event.setUserId(number.longValue());
+        }
+
+        Object recipientIds = payload.get("recipientIds");
+        if (recipientIds instanceof List<?> list) {
+            event.setRecipientIds(list.stream()
+                    .filter(value -> value != null)
+                    .map(this::toLong)
+                    .collect(Collectors.toList()));
+        }
+
+        Object version = payload.get("version");
+        if (version instanceof Number number) {
+            event.setVersion(number.intValue());
+        }
+
+        Map<String, Object> data = new HashMap<>(payload);
+        data.remove("type");
+        data.remove("userId");
+        data.remove("recipientIds");
+        data.remove("version");
+
+        event.setData(data);
+        return event;
+    }
+
+    private Long toLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+
+        return Long.parseLong(String.valueOf(value));
     }
 }
 

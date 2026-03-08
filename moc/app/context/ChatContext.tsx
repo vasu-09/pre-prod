@@ -1,7 +1,7 @@
 import { useSegments } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
-import { inboxQueue, roomTopic, sendInboxAck as sendInboxAckDestination } from '../constants/stompEndpoints';
+import { inboxQueue, sendInboxAck as sendInboxAckDestination } from '../constants/stompEndpoints';
 import { getAccessToken, getStoredUserId } from '../services/authStorage';
 import {
   getRecentConversationsFromDb,
@@ -9,7 +9,6 @@ import {
   upsertConversationInDb,
 } from '../services/database';
 import { fetchPendingMessages } from '../services/messagesService';
-import { ChatMessageDto } from '../services/roomsService';
 import stompClient from '../services/stompClient';
 
 export type RoomLastMessage = {
@@ -101,7 +100,6 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   const segments = useSegments();
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
-  const subscriptionsRef = useRef<Record<string, () => void>>({});
   const [sessionReady, setSessionReady] = useState(false);
   const inboxUnsubRef = useRef<(() => void) | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -479,88 +477,8 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
   }, [sessionReady, accessToken, currentUserId, handleInboxPayload, shouldConnectRealtime]);
 
 
- useEffect(() => {
-    if (!sessionReady || !accessToken || !shouldConnectRealtime) {
-      return;
-    }
-
-    const existingSubs = subscriptionsRef.current;
-    const activeKeys = new Set(rooms.map(r => r.roomKey));
-
-    // cleanup stale
-    Object.entries(existingSubs).forEach(([key, unsubscribe]) => {
-      if (!activeKeys.has(key)) {
-        try {
-          unsubscribe();
-        } catch {
-          // ignore
-        }
-        delete existingSubs[key];
-      }
-    });
-
-    let cancelled = false;
-
-    stompClient
-      .ensureConnected()
-      .then(() => {
-        rooms.forEach(room => {
-          const key = room.roomKey;
-          if (!key || existingSubs[key]) return;
-
-          const unsubscribe = stompClient.subscribe(roomTopic(key), frame => {
-            if (cancelled) return;
-
-            let payload: ChatMessageDto | null = null;
-            try {
-              payload = frame.body ? JSON.parse(frame.body) : null;
-            } catch (err) {
-              console.warn('Failed to parse inbound message frame', err);
-              return;
-            }
-            if (!payload) return;
-
-            const lastMessage: RoomLastMessage = {
-              messageId: payload.messageId,
-              text: payload.body ?? payload.ciphertext ?? null,
-              at: payload.serverTs ?? new Date().toISOString(),
-              senderId: payload.senderId ?? null,
-            };
-
-            updateRoomActivity(key, lastMessage);
-
-            if (payload.roomId != null && payload.roomId !== room.id) {
-              upsertRoom({ ...room, id: payload.roomId, roomKey: key });
-            }
-
-            if (currentUserId == null || payload.senderId !== currentUserId) {
-              incrementUnread(key);
-            }
-          });
-
-          existingSubs[key] = unsubscribe;
-        });
-      })
-      .catch(err => console.warn('Global chat listener failed to connect', err));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [rooms, sessionReady, accessToken, currentUserId, incrementUnread, shouldConnectRealtime, updateRoomActivity, upsertRoom]);
-
-
   useEffect(
     () => () => {
-      const subs = subscriptionsRef.current;
-      Object.values(subs).forEach(unsubscribe => {
-        try {
-          unsubscribe();
-        } catch {
-      
-          // ignore
-        }
-      });
-      subscriptionsRef.current = {};
       if (inboxUnsubRef.current) {
         try {
           inboxUnsubRef.current();

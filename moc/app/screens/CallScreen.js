@@ -45,6 +45,7 @@ export default function CallScreen() {
     role === 'callee' ? 'Incoming call…' : 'Calling…',
   );
   const hasEndedRef = useRef(false);
+  const joinedCallRef = useRef(null);
 
   const wave1 = useRef(new Animated.Value(0)).current;
   const wave2 = useRef(new Animated.Value(0)).current;
@@ -108,13 +109,21 @@ export default function CallScreen() {
     if (!callId) {
       return;
     }
+    if (joinedCallRef.current === callId) {
+      return;
+    }
+
+    joinedCallRef.current = callId;
     hasEndedRef.current = false;
-    joinCall().catch(err => console.warn('Failed to join call', err));
+    joinCall(callId).catch(err => console.warn('Failed to join call', err));
     if (role === 'callee') {
-      markRinging().catch(err => console.warn('Failed to signal ringing state', err));
+      markRinging(callId).catch(err => console.warn('Failed to signal ringing state', err));
     }
     return () => {
-      leaveCall().catch(err => console.warn('Failed to leave call', err));
+      if (joinedCallRef.current === callId) {
+        joinedCallRef.current = null;
+      }
+      leaveCall(callId).catch(err => console.warn('Failed to leave call', err));
     };
   }, [callId, joinCall, leaveCall, markRinging, role]);
 
