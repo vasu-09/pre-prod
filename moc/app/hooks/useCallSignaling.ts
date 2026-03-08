@@ -113,24 +113,29 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
   }, []);
 
   const sendInvite = useCallback(
-    (targetRoomId: number, calleeIds: number[], { group }: { group?: boolean } = {}) => {
+    (
+      targetRoomId: number,
+      calleeIds: number[],
+      { group, mode }: { group?: boolean; mode?: 'audio' | 'video' } = {},
+    ) => {
       if (!targetRoomId || !Array.isArray(calleeIds) || !calleeIds.length) {
         return Promise.reject(new Error('A valid room id and at least one callee are required'));
       }
+      const metadata = mode ? { mode } : {};
       return group
-        ? callSignaling.inviteGroup(targetRoomId, calleeIds)
-        : callSignaling.invite(targetRoomId, calleeIds);
+       ? callSignaling.inviteGroup(targetRoomId, calleeIds, metadata)
+        : callSignaling.invite(targetRoomId, calleeIds, metadata);
     },
     [],
   );
 
   const sendInviteDefault = useCallback(
-    (calleeIds: number[], { group }: { group?: boolean } = {}) => {
+    (calleeIds: number[], { group, mode }: { group?: boolean; mode?: 'audio' | 'video' } = {}) => {
       const resolvedRoomId = ensureNumber(roomId);
       if (!resolvedRoomId) {
         return Promise.reject(new Error('Room id not available'));
       }
-      return sendInvite(resolvedRoomId, calleeIds, { group });
+      return sendInvite(resolvedRoomId, calleeIds, { group, mode });
     },
     [roomId, sendInvite],
   );

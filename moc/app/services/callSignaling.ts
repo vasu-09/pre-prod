@@ -64,17 +64,25 @@ const ensureArray = (value: unknown): number[] => {
 };
 
 const callSignaling = {
-  invite(roomId: number | string | null | undefined, calleeIds: number[]) {
+  invite(
+    roomId: number | string | null | undefined,
+    calleeIds: number[],
+    metadata: Record<string, any> = {},
+  ) {
     if (!roomId) {
       return Promise.reject(new Error('roomId is required for call invite'));
     }
-    return stompClient.publish(`/app/call/invite/${roomId}`, { calleeIds });
+    return stompClient.publish(`/app/call/invite/${roomId}`, { calleeIds, ...metadata });
   },
-  inviteGroup(roomId: number | string | null | undefined, calleeIds: number[]) {
+  inviteGroup(
+    roomId: number | string | null | undefined,
+    calleeIds: number[],
+    metadata: Record<string, any> = {},
+  ) {
     if (!roomId) {
       return Promise.reject(new Error('roomId is required for group call invite'));
     }
-    return stompClient.publish(`/app/call/invite/group/${roomId}`, { calleeIds });
+    return stompClient.publish(`/app/call/invite/group/${roomId}`, { calleeIds, ...metadata });
   },
   join(callId: number | string | null | undefined) {
     if (!callId) {

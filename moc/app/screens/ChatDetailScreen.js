@@ -1009,21 +1009,24 @@ const makeReplyPayload = useCallback(
       }
     });
   }, []);
-  const handleCallRoomEvent = useCallback(
+  const isVideoCallEvent = useCallback(event => {
+    if (!event) {
+      return false;
+    }
+    const mode = String(event.mode ?? event.callMode ?? event.mediaType ?? event.offerType ?? '').toLowerCase();
+    if (mode === 'video') {
+      return true;
+    }
+    if (typeof event.isVideo === 'boolean') {
+      return event.isVideo;
+    }
+    return false;
+  }, []);
+
+  const routeIncomingCall = useCallback(
     event => {
-      if (!event || event.type !== 'call.invite') {
-        return;
-      }
-      const eventRoomId =
-        typeof event.roomId === 'number' ? event.roomId : Number(event.roomId ?? roomId);
-      if (!roomId || Number.isNaN(eventRoomId) || eventRoomId !== roomId) {
-        return;
-      }
       const callId = typeof event.callId === 'number' ? event.callId : Number(event.callId);
-      if (!callId || Number.isNaN(callId)) {
-        return;
-      }
-      if (activeCallIdRef.current === callId) {
+      if (!callId || Number.isNaN(callId) || activeCallIdRef.current === callId) {
         return;
       }
       const fromId = typeof event.from === 'number' ? event.from : Number(event.from);
@@ -1033,29 +1036,48 @@ const makeReplyPayload = useCallback(
             .filter(value => !Number.isNaN(value))
         : [];
       const participants = [...calleeIds, fromId].filter(value => !Number.isNaN(value));
-      if (currentUserId != null && !participants.includes(currentUserId)) {
+      if (currentUserId != null && participants.length && !participants.includes(currentUserId)) {
         return;
       }
       activeCallIdRef.current = callId;
-      const role = fromId === currentUserId ? 'caller' : 'callee';
+      const pathname = isVideoCallEvent(event)
+        ? '/screens/VideoCallReceivingScreen'
+        : '/screens/AudioCallReceivingScreen';
+
       router.push({
-        pathname: '/screens/CallScreen',
+        pathname,
         params: {
           callId: String(callId),
           roomId: roomId ? String(roomId) : '',
           name: chatTitle,
           ...(avatarUri ? { image: avatarUri } : {}),
-          role,
+          role: fromId === currentUserId ? 'caller' : 'callee',
           peerId: peerId != null ? String(peerId) : undefined,
         },
       });
+
       setTimeout(() => {
         if (activeCallIdRef.current === callId) {
           activeCallIdRef.current = null;
         }
       }, 3000);
     },
-    [roomId, currentUserId, router, chatTitle, avatarUri, peerId],
+    [avatarUri, chatTitle, currentUserId, isVideoCallEvent, peerId, roomId, router],
+  );
+
+  const handleCallRoomEvent = useCallback(
+    event => {
+      if (!event || (event.type !== 'call.invite' && event.type !== 'call.offer')) {
+        return;
+      }
+      const eventRoomId =
+        typeof event.roomId === 'number' ? event.roomId : Number(event.roomId ?? roomId);
+      if (!roomId || Number.isNaN(eventRoomId) || eventRoomId !== roomId) {
+        return;
+      }
+      routeIncomingCall(event);
+    },
+    [roomId, routeIncomingCall],
   );
 
   const handleQueueEvent = useCallback(
@@ -1078,9 +1100,13 @@ const makeReplyPayload = useCallback(
         if (Array.isArray(event.users) && event.users.length) {
           Alert.alert('Call unavailable', 'Some participants are already in another call.');
         }
+        return;
+      }
+      if (event.type === 'call.offer' || event.type === 'call.invite') {
+        routeIncomingCall(event);
       }
     },
-    [roomId],
+    [roomId, routeIncomingCall],
   );
 
   const { sendInviteDefault: sendRoomCallInvite } = useCallSignalingHook({
@@ -2367,15 +2393,29 @@ const makeReplyPayload = useCallback(
                 <>
                   <TouchableOpacity
                     style={styles.iconBtn}
-                    onPress={() =>
-                      router.push({
-                        pathname: '/screens/VideoCallScreen',
-                        params: {
-                          name: chatTitle,
-                          image: avatarUri,
-                        },
-                      })
-                    }
+                    onPress={async () => {
+                      if (!roomId || !peerId) {
+                        Alert.alert('Call unavailable', 'This chat is not ready for calling yet.');
+                        return;
+                      }
+                      if (activeCallIdRef.current && activeCallIdRef.current !== 'pending') {
+                        return;
+                      }
+                      activeCallIdRef.current = 'pending';
+                      try {
+                        await sendRoomCallInvite([peerId], { mode: 'video' });
+                      } catch (err) {
+                        activeCallIdRef.current = null;
+                        console.warn('Failed to start video call', err);
+                        Alert.alert('Call failed', 'Unable to start the video call. Please try again.');
+                      } finally {
+                        setTimeout(() => {
+                          if (activeCallIdRef.current === 'pending') {
+                            activeCallIdRef.current = null;
+                          }
+                        }, 10000);
+                      }
+                    }}
                   >
                   <Icon name="videocam" size={24} color="#fff" />
                   </TouchableOpacity>
@@ -2391,7 +2431,7 @@ const makeReplyPayload = useCallback(
                       }
                       activeCallIdRef.current = 'pending';
                       try {
-                        await sendRoomCallInvite([peerId]);
+                        await sendRoomCallInvite([peerId], { mode: 'audio' });
                       } catch (err) {
                         activeCallIdRef.current = null;
                         console.warn('Failed to start voice call', err);
