@@ -1,16 +1,20 @@
-import type { ExistingContact } from 'expo-contacts';
+import * as Contacts from 'expo-contacts';
 
 import { buildContactIndex, normalizePhoneNumber, syncContacts, type ContactMatch } from './contactService';
 import {
   getContactsFromDb,
+  getMetaValueFromDb,
   replaceContactsInDb,
   searchContactsInDb as searchContactsInNativeDb,
+  setMetaValueInDb,
   type StoredContactInput,
 } from './database.native';
 
 type PhoneEntry = { label?: string | null; number: string };
 
 type MatchLookup = Map<string, ContactMatch>;
+
+export const CONTACTS_LAST_SYNCED_AT_META_KEY = 'contacts_last_synced_at';
 
 const buildMatchLookup = (matches: ContactMatch[]): MatchLookup => {
   const lookup: MatchLookup = new Map();
@@ -57,7 +61,7 @@ const findMatchForPhones = (phones: PhoneEntry[], lookup: MatchLookup): ContactM
 };
 
 export const persistContactsToDb = async (
-  contacts: ExistingContact[],
+  contacts: Contacts.Contact[],
   matches: ContactMatch[],
 ): Promise<void> => {
   const lookup = buildMatchLookup(matches ?? []);
@@ -91,11 +95,8 @@ export const persistContactsToDb = async (
 
 export const readStoredContacts = async (): Promise<StoredContactInput[]> => getContactsFromDb();
 
-// Save the provided contacts into SQLite while keeping match metadata up to date.
-// This is reused anywhere the device contacts are synced so that the local DB
-// remains our source of truth for contact lists.
 export const saveContactsToDb = async (
-  contacts: ExistingContact[],
+  contacts: Contacts.Contact[],
   matches?: ContactMatch[],
 ): Promise<ContactMatch[]> => {
   if (!contacts?.length) {
@@ -115,6 +116,27 @@ export const saveContactsToDb = async (
 
 export const getAllContactsFromDb = async (): Promise<StoredContactInput[]> => getContactsFromDb();
 
+export const getMatchedContactsFromDb = async (): Promise<StoredContactInput[]> => {
+  const contacts = await getContactsFromDb();
+  const uniqueByUserId = new Map<string, StoredContactInput>();
+
+  contacts.forEach((contact) => {
+    const userId = contact?.matchUserId != null ? String(contact.matchUserId) : '';
+    if (!userId || uniqueByUserId.has(userId)) {
+      return;
+    }
+
+    uniqueByUserId.set(userId, contact);
+  });
+
+  return Array.from(uniqueByUserId.values());
+};
+
+export const getInviteContactsFromDb = async (): Promise<StoredContactInput[]> => {
+  const contacts = await getContactsFromDb();
+  return contacts.filter((contact) => (contact.phoneNumbers ?? []).length > 0 && contact.matchUserId == null);
+};
+
 export const searchContactsInDb = async (query: string): Promise<StoredContactInput[]> => {
   if (!query?.trim()) {
     return getContactsFromDb();
@@ -123,8 +145,24 @@ export const searchContactsInDb = async (query: string): Promise<StoredContactIn
   return searchContactsInNativeDb(query.trim());
 };
 
+export const searchMatchedContactsFromDb = async (query: string): Promise<StoredContactInput[]> => {
+  const results = await searchContactsInDb(query);
+  const uniqueByUserId = new Map<string, StoredContactInput>();
+
+  results.forEach((contact) => {
+    const userId = contact?.matchUserId != null ? String(contact.matchUserId) : '';
+    if (!userId || uniqueByUserId.has(userId)) {
+      return;
+    }
+
+    uniqueByUserId.set(userId, contact);
+  });
+
+  return Array.from(uniqueByUserId.values());
+};
+
 export const syncAndPersistContacts = async (
-  contacts: ExistingContact[],
+  contacts: Contacts.Contact[],
 ): Promise<ContactMatch[]> => {
   if (!contacts?.length) {
     return [];
@@ -140,3 +178,10 @@ export const syncAndPersistContacts = async (
 
   return matches;
 };
+
+export const setContactsLastSyncedAt = async (isoString: string): Promise<void> => {
+  await setMetaValueInDb(CONTACTS_LAST_SYNCED_AT_META_KEY, isoString);
+};
+
+export const getContactsLastSyncedAt = async (): Promise<string | null> =>
+  getMetaValueFromDb(CONTACTS_LAST_SYNCED_AT_META_KEY);

@@ -1,4 +1,5 @@
-import type { Contact, PhoneNumber } from 'expo-contacts';
+import type { PhoneNumber } from 'expo-contacts';
+import * as Contacts from 'expo-contacts';
 
 import apiClient from './apiClient';
 import { normalizeIndianPhoneNumber } from './phoneNumber';
@@ -17,7 +18,7 @@ export interface ContactDetails {
 export const normalizePhoneNumber = (value: string): string | null =>
   normalizeIndianPhoneNumber(value);
 
-const collectPhoneNumbers = (contacts: Contact[]): string[] => {
+const collectPhoneNumbers = (contacts: Contacts.Contact[]): string[] => {
   const numbers = new Set<string>();
 
   contacts.forEach(contact => {
@@ -52,7 +53,7 @@ const collectPhoneNumbers = (contacts: Contact[]): string[] => {
   return Array.from(numbers);
 };
 
-export const buildContactIndex = (contacts: Contact[]): Map<string, ContactDetails> => {
+export const buildContactIndex = (contacts: Contacts.Contact[]): Map<string, ContactDetails> => {
   const index = new Map<string, ContactDetails>();
 
   contacts.forEach((contact) => {
@@ -73,7 +74,7 @@ export const buildContactIndex = (contacts: Contact[]): Map<string, ContactDetai
 };
 
 
-export const syncContacts = async (contacts: Contact[]): Promise<ContactMatch[]> => {
+export const syncContacts = async (contacts: Contacts.Contact[]): Promise<ContactMatch[]> => {
   const phones = collectPhoneNumbers(contacts);
 
   if (phones.length === 0) {

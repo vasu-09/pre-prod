@@ -1,6 +1,5 @@
-import * as Contacts from 'expo-contacts';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -14,125 +13,49 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { getAllContactsFromDb, syncAndPersistContacts } from '../services/contactStorage';
 
+import { useContactSync } from '../hooks/useContactSync';
 
 const INVITE_MESSAGE =
   'Hey! I am using MoC to stay connected. Download the app and join me: https://moc-app.example/invite';
 
-const loadDeviceContacts = async () => {
-  const collected = [];
-  let pageOffset = 0;
-  let hasNextPage = true;
-
-  while (hasNextPage) {
-    const response = await Contacts.getContactsAsync({
-      fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Image],
-      sort: Contacts.SortTypes.FirstName,
-      pageSize: 200,
-      pageOffset,
-    });
-
-    collected.push(...response.data);
-    hasNextPage = response.hasNextPage;
-    pageOffset += response.data.length;
-  }
-
-  return collected;
-};
-
 export default function InviteContactsScreen() {
   const router = useRouter();
-  const [contacts, setContacts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
+  const {
+    contacts: inviteContacts,
+    isLoading,
+    isRefreshing,
+    error,
+    permissionDenied,
+    refresh,
+  } = useContactSync({ selector: 'invite', refreshOnMount: true, staleMs: 5 * 60 * 1000 });
 
-  const fetchContacts = useCallback(
-    async (showSpinner = true) => {
-      if (showSpinner) {
-        setIsLoading(true);
-      }
-      setErrorMessage('');
+  const contacts = useMemo(
+    () =>
+      inviteContacts
+        .map(contact => {
+          const phoneNumbers = contact.phoneNumbers ?? [];
+          const displayPhone = phoneNumbers[0]?.number ?? contact.matchPhone ?? '';
 
-      try {
-        let { status } = await Contacts.getPermissionsAsync();
-        if (status !== 'granted') {
-          const request = await Contacts.requestPermissionsAsync();
-          status = request.status;
-        }
-
-        if (status !== 'granted') {
-          setContacts([]);
-          setErrorMessage('MoC needs permission to access your contacts to send invites.');
-          return;
-        }
-
-        const deviceContacts = await loadDeviceContacts();
-        const withNumbers = deviceContacts.filter(contact => (contact.phoneNumbers ?? []).length > 0);
-
-        if (!withNumbers.length) {
-          setContacts([]);
-          setErrorMessage('No contacts with phone numbers were found on your device.');
-          return;
-        }
-
-        // Persist synced contacts locally so invite options always read from SQLite.
-        await syncAndPersistContacts(withNumbers);
-
-        const storedContacts = await getAllContactsFromDb();
-
-        const inviteCandidates = storedContacts
-          .filter(contact => (contact.phoneNumbers ?? []).length > 0 && contact.matchUserId == null)
-          .map(contact => {
-            const phoneNumbers = contact.phoneNumbers ?? [];
-            const displayPhone = phoneNumbers[0]?.number ?? contact.matchPhone ?? '';
-
-            return {
-              id: contact.id ?? `${contact.name}-${Math.random().toString(36).slice(2)}`,
-              name: contact.name?.trim() || displayPhone || 'Unknown contact',
-              phone: displayPhone,
-               imageUri: contact.imageUri ?? null,
-            };
-          })
-          .sort((a, b) => a.name.localeCompare(b.name));
-
-        setContacts(inviteCandidates);
-
-        if (!inviteCandidates.length) {
-          setErrorMessage('Everyone in your address book is already on MoC. Great job!');
-        }
-      } catch (error) {
-        console.error('Failed to load contacts to invite', error);
-        setContacts([]);
-        setErrorMessage('Unable to load contacts right now. Please try again later.');
-      } finally {
-        if (showSpinner) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [],
+          return {
+            id: contact.id ?? `${contact.name}-${displayPhone}`,
+            name: contact.name?.trim() || displayPhone || 'Unknown contact',
+            phone: displayPhone,
+            imageUri: contact.imageUri ?? null,
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [inviteContacts],
   );
 
-  useEffect(() => {
-    fetchContacts(true);
-  }, [fetchContacts]);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await fetchContacts(false);
-    setRefreshing(false);
-  }, [fetchContacts]);
-
-  const handleInvite = async contact => {
+    const handleInvite = async () => {
     try {
       await Share.share({
         message: INVITE_MESSAGE,
         title: 'Invite to MoC',
       });
-    } catch (error) {
-      console.error('Failed to send invite', error);
+    } catch (inviteError) {
+      console.error('Failed to send invite', inviteError);
     }
   };
 
@@ -151,7 +74,7 @@ export default function InviteContactsScreen() {
           {item.phone ? <Text style={styles.contactPhone}>{item.phone}</Text> : null}
         </View>
       </View>
-      <TouchableOpacity style={styles.inviteButton} onPress={() => handleInvite(item)}>
+            <TouchableOpacity style={styles.inviteButton} onPress={handleInvite}>
         <Text style={styles.inviteButtonText}>Invite</Text>
       </TouchableOpacity>
     </View>
@@ -165,7 +88,12 @@ export default function InviteContactsScreen() {
           <Text style={styles.emptyText}>Loading contacts…</Text>
         </>
       ) : (
-        <Text style={styles.emptyText}>{errorMessage || 'No contacts to invite right now.'}</Text>
+         <Text style={styles.emptyText}>
+          {error ||
+            (permissionDenied
+              ? 'MoC needs contact permission to refresh invite suggestions.'
+              : 'No contacts to invite right now.')}
+        </Text>
       )}
     </View>
   );
@@ -187,8 +115,8 @@ export default function InviteContactsScreen() {
         renderItem={renderContact}
         contentContainerStyle={contacts.length ? styles.listContent : styles.emptyListContent}
         ListEmptyComponent={renderEmpty}
-        refreshing={refreshing}
-        onRefresh={onRefresh}
+         refreshing={isRefreshing}
+        onRefresh={() => refresh(true)}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
     </SafeAreaView>
@@ -280,17 +208,17 @@ const styles = StyleSheet.create({
   inviteButtonText: {
     color: '#1f6ea7',
     fontWeight: '600',
-    fontSize: 14,
-  },
-  separator: {
-    height: 12,
   },
   emptyState: {
     alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyText: {
+    marginTop: 8,
     textAlign: 'center',
-    marginTop: 12,
-    color: '#555',
+    color: '#666',
+  },
+  separator: {
+    height: 10,
   },
 });

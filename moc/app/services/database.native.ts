@@ -1190,6 +1190,32 @@ export const searchContactsInDb = async (query: string): Promise<StoredContactIn
   return rows?.map(deserializeContactRow) ?? [];
 };
 
+export const getMetaValueFromDb = async (key: string): Promise<string | null> => {
+  const trimmedKey = String(key ?? '').trim();
+  if (!trimmedKey) {
+    return null;
+  }
+
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<MetaRow>('SELECT value FROM meta WHERE key = ?', [trimmedKey]);
+  return row?.value ?? null;
+};
+
+export const setMetaValueInDb = async (key: string, value: string | null): Promise<void> =>
+  runWithWriteLock(async () => {
+    const trimmedKey = String(key ?? '').trim();
+    if (!trimmedKey) {
+      return;
+    }
+
+    const db = await getDatabase();
+    await db.runAsync(
+      `INSERT INTO meta (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [trimmedKey, value],
+    );
+  });
+
 export const upsertUserProfileInDb = async (profile: StoredUserProfileInput): Promise<void> =>
   runWithWriteLock(async () => {
     const db = await getDatabase();

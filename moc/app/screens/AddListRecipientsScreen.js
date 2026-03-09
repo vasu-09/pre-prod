@@ -5,7 +5,7 @@ import {
     Alert,
     FlatList,
     Image,
-    SafeAreaView,
+    SafeAreaViewBase,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -17,9 +17,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
+import { useContactSync } from '../hooks/useContactSync';
 import apiClient from '../services/apiClient';
 import { getStoredSession } from '../services/authStorage';
-import { getAllContactsFromDb } from '../services/contactStorage';
 
 const normalizeId = (value) => String(value ?? '').trim();
 
@@ -81,6 +81,14 @@ export default function AddListRecipientsScreen() {
 
   const existingIds = useMemo(() => parseExistingRecipientIds(rawExistingRecipientIds), [rawExistingRecipientIds]);
 
+  const {
+    contacts: matchedContactsCache,
+    isLoading: isLoadingContacts,
+    isRefreshing: isRefreshingContacts,
+    error: contactsSyncError,
+    refresh,
+  } = useContactSync({ selector: 'matched', refreshOnMount: true, staleMs: 5 * 60 * 1000 });
+
   const [allCandidates, setAllCandidates] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,41 +97,17 @@ export default function AddListRecipientsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    let isMounted = true;
+    const normalized = normalizeCandidates(matchedContactsCache, existingIds);
+    setAllCandidates(normalized);
 
-    const loadCandidates = async () => {
-      setIsLoading(true);
+    if (!normalized.length) {
+      setErrorMessage(contactsSyncError || 'No eligible contacts available to add.');
+    } else {
       setErrorMessage('');
+    }
 
-      try {
-        const contacts = await getAllContactsFromDb();
-        const normalized = normalizeCandidates(contacts, existingIds);
-
-        if (isMounted) {
-          setAllCandidates(normalized);
-          if (!normalized.length) {
-            setErrorMessage('No eligible contacts available to add.');
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load contact candidates', error);
-        if (isMounted) {
-          setErrorMessage('Unable to load contacts right now.');
-          setAllCandidates([]);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadCandidates();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [existingIds]);
+     setIsLoading(isLoadingContacts && !matchedContactsCache.length);
+  }, [contactsSyncError, existingIds, isLoadingContacts, matchedContactsCache]);
 
   const filteredCandidates = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -226,7 +210,7 @@ export default function AddListRecipientsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaViewBase style={styles.container}>
       <StatusBar backgroundColor="#1f6ea7" barStyle="light-content" />
       <View style={[styles.header, { paddingTop: insets.top }]}> 
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
@@ -286,13 +270,15 @@ export default function AddListRecipientsScreen() {
             {isLoading ? (
               <>
                 <ActivityIndicator size="small" color="#1f6ea7" />
-                <Text style={styles.emptyText}>Loading contacts…</Text>
+                <Text style={styles.emptyText}>{isRefreshingContacts ? 'Refreshing contacts…' : 'Loading contacts…'}</Text>
               </>
             ) : (
               <Text style={styles.emptyText}>{errorMessage || 'No contacts found.'}</Text>
             )}
           </View>
         }
+        refreshing={isRefreshingContacts}
+        onRefresh={() => refresh(true)}
       />
 
       <TouchableOpacity
@@ -310,7 +296,7 @@ export default function AddListRecipientsScreen() {
           <Icon name="person-add" size={24} color="#fff" />
         )}
       </TouchableOpacity>
-    </SafeAreaView>
+    </SafeAreaViewBase>
   );
 }
 

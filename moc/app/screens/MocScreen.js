@@ -1,5 +1,4 @@
 import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
-import * as Contacts from 'expo-contacts';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -19,20 +18,14 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useChatRegistry } from '../context/ChatContext';
-import { getAllContactsFromDb, searchContactsInDb, syncAndPersistContacts } from '../services/contactStorage';
+import { useContactSync } from '../hooks/useContactSync';
+import { ensureContactsSynced, searchCachedContacts } from '../services/contactSyncCoordinator';
 import { getE2EEClient } from '../services/e2ee';
 import { createDirectRoom } from '../services/roomsService';
 
 const windowHeight = Dimensions.get('window').height;
 
 
-const dummyContacts = [
-  { name: 'Harika', img: 'https://static.toiimg.com/photo/119128176.cms' },
-  { name: 'Sushma', img: 'https://documents.iplt20.com/ipl/IPLHeadshot2025/2.png' },
-  { name: 'Shankar', img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Pawan2.jpg/250px-Pawan2.jpg' },
-  { name: 'Seetha', img: 'https://images.filmibeat.com/img/popcorn/profile_photos/sushmithabhat-20240312181216-62185.jpg' },
-  { name: 'Mohan', img: 'https://upload.wikimedia.org/wikipedia/commons/9/95/Priyanka_Arul_Mohan_at_Etharkkum_Thunindhavan_pre_release_event_%28cropped%29.jpg' },
-];
 
 // Chats Screen
 
@@ -42,7 +35,6 @@ const MocScreen = () => {
   const [searchActive, setSearchActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [contactResults, setContactResults] = useState([]);
-  const [isSyncingContacts, setIsSyncingContacts] = useState(false);
   const [contactsError, setContactsError] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const [createError, setCreateError] = useState('');
@@ -55,6 +47,15 @@ const MocScreen = () => {
   const router = useRouter();
 
   const hasSearchQuery = searchQuery.trim().length > 0;
+
+  const {
+    contacts: matchedSuggestions,
+    isLoading: isLoadingMatchedSuggestions,
+    error: matchedSuggestionsError,
+    permissionDenied: isPermissionDeniedForSuggestions,
+    refresh: refreshMatchedSuggestions,
+  } = useContactSync({ selector: 'matched', refreshOnMount: true, staleMs: 5 * 60 * 1000 });
+
 
   useEffect(() => {
     console.log("[MOC] rooms changed, count =", rooms.length, rooms);
@@ -210,44 +211,24 @@ const MocScreen = () => {
     );
   };
 
-  const syncContactsToDb = useCallback(async () => {
-    setContactsError('');
-    setIsSyncingContacts(true);
-
-    try {
-      const permission = await Contacts.requestPermissionsAsync();
-
-      if (!permission.granted) {
-        setContactsError('MoC needs access to your contacts to search them.');
-        setContactResults([]);
-        return;
-      }
-
-      const response = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Image],
-        sort: Contacts.SortTypes.FirstName,
-      });
-
-      const contactsWithPhones = (response.data ?? []).filter((contact) => (contact.phoneNumbers ?? []).length > 0);
-
-      await syncAndPersistContacts(contactsWithPhones);
-
-      const storedContacts = await getAllContactsFromDb();
-      setContactResults(storedContacts);
-    } catch (error) {
-      console.warn('Unable to sync contacts from search', error);
-      setContactsError('Unable to sync contacts right now.');
-      setContactResults([]);
-    } finally {
-      setIsSyncingContacts(false);
-    }
-  }, []);
-
   useEffect(() => {
-    if (searchActive) {
-      syncContactsToDb();
+    if (!searchActive) {
+      return;
     }
-  }, [searchActive, syncContactsToDb]);
+
+      ensureContactsSynced({ force: false, staleMs: 5 * 60 * 1000 }).then(() => {
+      if (searchQuery.trim()) {
+        searchCachedContacts(searchQuery.trim())
+          .then(setContactResults)
+          .catch((error) => {
+            console.warn('Unable to refresh search contacts', error);
+          });
+      }
+      refreshMatchedSuggestions(false).catch((error) => {
+        console.warn('Unable to refresh matched contacts', error);
+      });
+       });
+  }, [refreshMatchedSuggestions, searchActive, searchQuery]);
 
   useEffect(() => {
     if (!searchActive) {
@@ -265,7 +246,7 @@ const MocScreen = () => {
         return;
       }
       try {
-        const results = await searchContactsInDb(trimmed);
+        const results = await searchCachedContacts(trimmed);
 
         if (isMounted) {
           setContactResults(results);
@@ -387,19 +368,39 @@ const MocScreen = () => {
               </Text>
 
               <View style={styles.inviteSection}>
+                {isLoadingMatchedSuggestions ? (
+                <Text style={styles.subtitle}>Loading MoC contacts…</Text>
+              ) : null}
+              {matchedSuggestionsError ? <Text style={styles.errorText}>{matchedSuggestionsError}</Text> : null}
+              {isPermissionDeniedForSuggestions && !matchedSuggestions.length ? (
+                <Text style={styles.subtitle}>Allow contacts access to discover friends on MoC.</Text>
+              ) : null}
+              {!isLoadingMatchedSuggestions && !matchedSuggestions.length ? (
+                <Text style={styles.subtitle}>No matched contacts on MoC yet.</Text>
+              ) : null}
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 style={styles.avatarRow}
                 contentContainerStyle={styles.avatarRowContent}
               >
-                {dummyContacts.map((c, i) => (
-                  <View style={styles.avatarContainer} key={i}>
-                    <Image source={{ uri: c.img }} style={styles.avatar} />
+                {matchedSuggestions.map((contact, i) => (
+                  <TouchableOpacity
+                    style={styles.avatarContainer}
+                    key={contact?.matchUserId != null ? String(contact.matchUserId) : String(contact?.id ?? i)}
+                    onPress={() => handleStartDirectChat(contact)}
+                  >
+                    {contact?.imageUri ? (
+                      <Image source={{ uri: contact.imageUri }} style={styles.avatar} />
+                    ) : (
+                      <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                        <Icon name="person" size={22} color="#888" />
+                      </View>
+                    )}
                     <Text style={styles.avatarName} numberOfLines={1}>
-                      {c.name}
+                      {contact?.name || contact?.matchPhone || 'MoC user'}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </ScrollView>
 
@@ -525,12 +526,7 @@ const MocScreen = () => {
 
       {searchActive ? (
         <View style={styles.searchContainer}>
-          {isSyncingContacts ? (
-            <View style={styles.loaderWrapper}>
-              <ActivityIndicator size="large" color="#1f6ea7" />
-              <Text style={styles.loaderText}>Syncing contacts…</Text>
-            </View>
-          ) : contactsError ? (
+          {contactsError ? (
             <View style={styles.loaderWrapper}>
               <Text style={styles.errorText}>{contactsError}</Text>
             </View>

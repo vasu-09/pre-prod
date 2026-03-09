@@ -1,7 +1,6 @@
 // LinkListScreen.js
-import * as Contacts from 'expo-contacts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,8 +15,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
+import { useContactSync } from '../hooks/useContactSync';
 import apiClient from '../services/apiClient';
-import { getAllContactsFromDb, saveContactsToDb } from '../services/contactStorage';
 
 const initialSelected = [];
 
@@ -25,8 +24,6 @@ export default function LinkListScreen() {
   const insets = useSafeAreaInsets();
   const [selectedIds, setSelectedIds] = useState(initialSelected);
   const router = useRouter();
-  const [contacts, setContacts] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -34,87 +31,37 @@ export default function LinkListScreen() {
   const parsedItems = JSON.parse(items);
   const listId = Array.isArray(rawListId) ? rawListId[0] : rawListId ?? '';
 
-  useEffect(() => {
-    let isMounted = true;
+  const {
+    contacts: matchedContactsCache,
+    isLoading: isLoadingContacts,
+    isRefreshing: isRefreshingContacts,
+    error: contactsSyncError,
+    refresh,
+  } = useContactSync({ selector: 'matched', refreshOnMount: true, staleMs: 5 * 60 * 1000 });
 
-    const fetchContacts = async () => {
-      setIsLoading(true);
+  const contacts = useMemo(() =>
+    matchedContactsCache
+      .map(contact => ({
+        id: contact.matchUserId != null ? String(contact.matchUserId) : contact.id ?? `${contact.name ?? 'contact'}-${contact.matchPhone ?? ''}` ,
+        userId: contact.matchUserId,
+        phone: contact.matchPhone,
+        name: contact.name || contact.matchPhone || 'Unknown contact',
+        img: contact.imageUri ?? null,
+      }))
+      .filter((contact, index, arr) => arr.findIndex((c) => c.id === contact.id) === index),
+    [matchedContactsCache],
+  );
+;
+
+    useEffect(() => {
+    if (!contacts.length && contactsSyncError) {
+      setErrorMessage(contactsSyncError);
+    } else if (!contacts.length) {
+      setErrorMessage('None of your contacts are on MoC yet. Invite them to get started!');
+    } else {
       setErrorMessage('');
-
-      try {
-        const permission = await Contacts.getPermissionsAsync();
-        let status = permission.status;
-
-        if (status !== 'granted') {
-          const request = await Contacts.requestPermissionsAsync();
-          status = request.status;
-        }
-
-        if (status !== 'granted') {
-          if (isMounted) {
-            setContacts([]);
-            setErrorMessage('Allow contact access to find people already using MoC.');
-          }
-          return;
-        }
-
-        const { data } = await Contacts.getContactsAsync({
-          fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Image],
-          sort: Contacts.SortTypes.FirstName,
-        });
-
-        // Persist and re-read from SQLite so this screen always reflects the DB.
-        await saveContactsToDb(data);
-
-        const storedContacts = await getAllContactsFromDb();
-
-        if (!storedContacts.length) {
-          if (isMounted) {
-            setContacts([]);
-            setErrorMessage('No contacts with phone numbers found on your device.');
-          }
-          return;
-        }
-
-        const matchedContacts = storedContacts
-          .filter(contact => contact.matchUserId != null)
-          .map(contact => ({
-            id:
-              contact.matchUserId != null
-                ? String(contact.matchUserId)
-                : contact.id ?? `contact-${Math.random().toString(36).slice(2)}`,
-            userId: contact.matchUserId,
-            phone: contact.matchPhone,
-            name: contact.name || contact.matchPhone || 'Unknown contact',
-            img: contact.imageUri ?? null,
-          }))
-          .filter((contact, index, arr) => arr.findIndex((c) => c.id === contact.id) === index);
-
-        if (isMounted) {
-          setContacts(matchedContacts);
-          if (!matchedContacts.length) {
-            setErrorMessage('None of your contacts are on MoC yet. Invite them to get started!');
-          }
-        }
-      } catch (error) {
-        console.error('Failed to load contacts from sync endpoint', error);
-        if (isMounted) {
-          setContacts([]);
-          setErrorMessage('Unable to load contacts right now. Please try again later.');
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchContacts();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+       }
+  }, [contacts, contactsSyncError]);
 
   useEffect(() => {
     setSelectedIds((prev) => {
@@ -168,10 +115,10 @@ export default function LinkListScreen() {
 
   const renderContactsEmpty = () => (
     <View style={styles.emptyContainer}>
-      {isLoading ? (
+      {isLoadingContacts && !contacts.length ? (
         <>
           <ActivityIndicator size="small" color="#1f6ea7" />
-          <Text style={styles.emptyText}>Syncing your contacts…</Text>
+          <Text style={styles.emptyText}>{isRefreshingContacts ? 'Refreshing contacts…' : 'Syncing your contacts…'}</Text>
         </>
       ) : (
         <Text style={styles.emptyText}>{errorMessage || 'No contacts available.'}</Text>
@@ -272,6 +219,8 @@ export default function LinkListScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
         ListEmptyComponent={renderContactsEmpty}
+        refreshing={isRefreshingContacts}
+        onRefresh={() => refresh(true)}
       />
 
       <TouchableOpacity

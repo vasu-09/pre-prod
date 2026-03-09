@@ -1,7 +1,6 @@
 // screens/ContactPickerScreen.js
-import * as Contacts from 'expo-contacts';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   FlatList,
   Image,
@@ -16,26 +15,30 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
+import { useContactSync } from '../hooks/useContactSync';
+
 export default function ContactPickerScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const [contacts, setContacts] = useState([]);
+   const { contacts: cachedContacts, refresh } = useContactSync({ selector: 'all', refreshOnMount: true, staleMs: 5 * 60 * 1000 });
+  const contacts = useMemo(() =>
+    cachedContacts.map((contact) => ({
+      id: String(contact.id ?? `${contact.name}-${contact.matchPhone ?? ''}`),
+      name: contact.name,
+      imageUri: contact.imageUri ?? null,
+      phoneNumbers: contact.phoneNumbers ?? [],
+      matchUserId: contact.matchUserId ?? null,
+      matchPhone: contact.matchPhone ?? null,
+    })),
+  [cachedContacts]);
+
+
   const [selected, setSelected] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status !== 'granted') return;
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Image],
-        sort: Contacts.SortTypes.FirstName,
-      });
-      setContacts(data);
-    })();
-  }, []);
+ 
 
   const toggleSelect = contact =>
     setSelected(curr =>
@@ -59,8 +62,8 @@ export default function ContactPickerScreen() {
     const isSel = selected.some(c => c.id === item.id);
     return (
       <TouchableOpacity onPress={() => toggleSelect(item)} style={styles.item}>
-        {item.imageAvailable ? (
-          <Image source={{ uri: item.image.uri }} style={styles.avatar} />
+         {item.imageUri ? (
+          <Image source={{ uri: item.imageUri }} style={styles.avatar} />
         ) : (
           <View style={[styles.avatar, styles.placeholder]}>
             <Icon name="person" size={24} color="#888" />
@@ -74,36 +77,34 @@ export default function ContactPickerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* ◀️ Conditional header */}
       {isSearching ? (
         <View style={[styles.searchHeader, { paddingTop: insets.top }]}>
-    <TouchableOpacity
-      onPress={() => setIsSearching(false)}
-      style={styles.searchBackBtn}
-    >
-      <Icon name="arrow-back" size={24} color="#1f6ea7" />
-    </TouchableOpacity>
-    <TextInput
-      style={styles.searchHeaderInput}
-      placeholder="Search contacts"
-      placeholderTextColor="#999"
-      value={searchQuery}
-      onChangeText={setSearchQuery}
-      autoFocus
-      underlineColorAndroid="transparent"
-    />
-  </View>
+          <TouchableOpacity
+            onPress={() => setIsSearching(false)}
+            style={styles.searchBackBtn}
+          >
+            <Icon name="arrow-back" size={24} color="#1f6ea7" />
+          </TouchableOpacity>
+          <TextInput
+            style={styles.searchHeaderInput}
+            placeholder="Search contacts"
+            placeholderTextColor="#999"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoFocus
+            underlineColorAndroid="transparent"
+          />
+        </View>
       ) : (
         <View style={[styles.header, { paddingTop: insets.top }]}>
-    <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-      <Icon name="arrow-back" size={24} color="#fff" />
-    </TouchableOpacity>
+     <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Icon name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
 
-    {/* Title + subtitle stacked on the left */}
     <View style={styles.titleContainer}>
-      <Text style={styles.title}>contacts to send</Text>
-      <Text style={styles.subtitle}>{selected.length} selected</Text>
-    </View>
+            <Text style={styles.title}>contacts to send</Text>
+            <Text style={styles.subtitle}>{selected.length} selected</Text>
+          </View>
 
     <TouchableOpacity onPress={() => { setIsSearching(true); setSearchQuery(''); }} style={styles.searchBtn}>
             <Icon name="search" size={24} color="#fff" />
@@ -113,7 +114,6 @@ export default function ContactPickerScreen() {
         
       )}
 
-      {/* Selected strip (unchanged) */}
       {selected.length > 0 && (
         <View style={styles.selectedWrapper}>
           <Text style={styles.sectionTitle}>Selected contacts</Text>
@@ -125,8 +125,8 @@ export default function ContactPickerScreen() {
           >
             {selected.map(c => (
               <View key={c.id} style={styles.selectedItem}>
-                {c.imageAvailable ? (
-                  <Image source={{ uri: c.image.uri }} style={styles.selectedAvatar} />
+                  {c.imageUri ? (
+                  <Image source={{ uri: c.imageUri }} style={styles.selectedAvatar} />
                 ) : (
                   <View style={[styles.selectedAvatar, styles.placeholder]}>
                     <Icon name="person" size={20} color="#888" />
@@ -147,7 +147,6 @@ export default function ContactPickerScreen() {
         </View>
       )}
 
-      {/* All contacts */}
       <Text style={styles.sectionTitle}>All contacts</Text>
       <FlatList
         data={filteredContacts}
@@ -156,7 +155,6 @@ export default function ContactPickerScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
       />
 
-      {/* Floating Send button */}
       {selected.length > 0 && (
         <TouchableOpacity
           style={[styles.fab, { bottom: insets.bottom + 16 }]}
@@ -168,44 +166,34 @@ export default function ContactPickerScreen() {
     </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#eef5fa' },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#1f6ea7',
     paddingHorizontal: 8,
     height: 56,
-    // remove fixed height so it can grow with two lines
   },
-
   backBtn: { padding: 8 },
   sendBtn: { padding: 8 },
-
   titleContainer: {
     flex: 1,
     flexDirection: 'column',
     marginLeft: 8,
   },
-
   title: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
   },
-
   subtitle: {
     color: '#fff',
     fontSize: 14,
     marginTop: 2,
   },
   // NORMAL header
-  
   searchBtn: { padding: 8 },
-
-  // SEARCH header replaces the normal header
  selectedCount: {
     fontSize: 14,
     fontWeight: '600',
@@ -277,24 +265,16 @@ const styles = StyleSheet.create({
     padding: 16,
     elevation: 4,
   },
-
- 
-
-
 searchHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
     paddingHorizontal: 8,
-    height: 56,              // standard appbar height
+    height: 56,             
   },
-
-  // smaller hit area for the back arrow pill
   searchBackBtn: {
     padding: 8,
   },
-
-  // full‑width, flat input
   searchHeaderInput: {
     flex: 1,
     marginLeft: 8,
