@@ -35,7 +35,7 @@ security:
   oauth2:
     resourceserver:
       jwt:
-        issuer-uri: ${AUTH_ISSUER_URI:https://api-preprod.mocconnect.in}
+        issuer-uri: ${AUTH_ISSUER_URI:https://api-preprod.mocconnect.in/}
         jwk-set-uri: ${AUTH_JWK_SET_URI:http://auth-service.moc-preprod.svc.cluster.local:80/.well-known/jwks.json}
 server:
   port: ${SERVER_PORT:8090}
@@ -64,13 +64,14 @@ management:
 #
 razorpay:
   api:
-    key: ${RAZORPAY_API_KEY:rzp_test_1UaYWJMuiMbpzB}
-    secret: ${RAZORPAY_API_SECRET:tSv3viRgPajAnYVQqUkjVkLT}
-    webhookSecret: ${RAZORPAY_API_WEBHOOK_SECRET:}
+    key: ${RAZORPAY_API_KEY:rzp_test_SMmV9ZWpoiTfnm}
+    secret: ${RAZORPAY_API_SECRET:JjCosdMSHKFpNU92cniURLoK}
+    webhookSecret: ${RAZORPAY_API_WEBHOOK_SECRET:todo_preprod_secret_01^03*2026}
 
 moc:
   subscription:
-    default-plan-id: ${MOC_SUBSCRIPTION_DEFAULT_PLAN_ID:plan_SLxwzJ6UrleDWp}
+    default-plan-id: ${MOC_SUBSCRIPTION_DEFAULT_PLAN_ID:plan_SMn8AH9ETtwJty}
+    total-count: ${MOC_SUBSCRIPTION_TOTAL_COUNT:120}
     
 # Keep this custom and read it in a @ConfigurationProperties or @Value
 cors:

@@ -46,7 +46,7 @@ public class PaymentService {
     @Value("${moc.subscription.default-plan-id}")
     private String defaultPlanId;
 
-    @Value("${moc.subscription.total-count:1200}")
+    @Value("${moc.subscription.total-count:120}")
     private int subscriptionTotalCount;
     
     private RazorpayClient client;
@@ -102,12 +102,18 @@ public class PaymentService {
             // 2) Compute a non-peak start time (epoch seconds)
             long startAt = nextNonPeakInstant().getEpochSecond();
 
+            if (subscriptionTotalCount <= 0 || subscriptionTotalCount > 240) {
+                throw new IllegalStateException("moc.subscription.total-count must be > 0, got: " + subscriptionTotalCount);
+            }
             // 3) Build subscription request
             JSONObject req = new JSONObject();
             req.put("plan_id", planId);
             req.put("total_count", subscriptionTotalCount);
             req.put("customer_notify", true);
-            req.put("start_at", startAt); // schedule in non-peak window
+            // req.put("start_at", startAt); // schedule in non-peak window
+            // Temporary isolation: omit start_at to rule out hosted-flow timestamp validation issues.
+            // If this stabilizes mandate authorization, reintroduce start_at with a simpler offset.
+
 
             if (email != null || contact != null) {
                 JSONObject notify = new JSONObject();
@@ -120,13 +126,17 @@ public class PaymentService {
             notes.put("app_user_id", userId.toString());
             req.put("notes", notes);
 
-            System.out.println("[RAZORPAY][SUB_CREATE] totalCount=" + subscriptionTotalCount);
-            System.out.println("[RAZORPAY][SUB_CREATE] payload=" + req.toString());
+            System.out.println("[RAZORPAY][SUB_CREATE] computedStartAt=" + startAt);
+            System.out.println("[RAZORPAY][SUB_CREATE][REQ] " + req.toString());
             // Create subscription (returns com.razorpay.Subscription which extends Entity)
             Entity created = client().subscriptions.create(req);
+            System.out.println("[RAZORPAY][SUB_CREATE][RESP] " + created.toString());
             String subscriptionId = created.get("id");
             String shortUrl = created.has("short_url") ? created.get("short_url") : null;
 
+            Entity fetched = client().subscriptions.fetch(subscriptionId);
+            System.out.println("[RAZORPAY][SUB_FETCH] " + fetched.toString());
+            
             // 4) Upsert local record (inactive until webhook confirms)
             Subscription sub = subscriptionRepo.findByUserId(userId).orElseGet(Subscription::new);
             sub.setUserId(userId);

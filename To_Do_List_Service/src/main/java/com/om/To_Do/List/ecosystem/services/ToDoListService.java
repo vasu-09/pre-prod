@@ -614,9 +614,22 @@ public class ToDoListService {
         toDoItemRepository.delete(item);
     }
 
-    public List<ToDoItem> getUpdatesSince(Long listId, LocalDateTime since) {
-        return toDoItemRepository.findByListIdAndUpdatedAtAfter(listId, since);
-    }
+    public List<ToDoItemRes> getUpdatesSinceDto(Long listId, LocalDateTime since) {
+    return toDoItemRepository.findByListIdAndUpdatedAtAfter(listId, since)
+        .stream()
+        .map(item -> {
+            ToDoItemRes dto = new ToDoItemRes();
+            dto.setId(item.getId());
+            dto.setItemName(item.getItemName());
+            dto.setQuantity(item.getQuantity());
+            dto.setPriceText(item.getPriceText());
+            dto.setCreatedAt(item.getCreatedAt());
+            dto.setUpdatedAt(item.getUpdatedAt());
+            dto.setSubQuantitiesJson(item.getSubQuantitiesJson());
+            return dto;
+        })
+        .toList();
+}
 
     @Transactional
     public SyncResponse syncOfflineUpdates(Long listId, SyncRequest request) {

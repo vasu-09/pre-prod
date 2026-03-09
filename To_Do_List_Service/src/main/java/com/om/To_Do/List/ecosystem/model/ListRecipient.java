@@ -19,7 +19,6 @@ public class ListRecipient {
 
     @ManyToOne
     @JoinColumn(name = "list_id")
-    @JsonIgnore
     private ToDoList list;
 
 
@@ -47,7 +46,8 @@ public class ListRecipient {
     public void setRecipientUserId(Long recipientUserId) {
         this.recipientUserId = recipientUserId;
     }
-
+    
+    @JsonIgnore
     public ToDoList getList() {
         return list;
     }

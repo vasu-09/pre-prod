@@ -1,8 +1,6 @@
 package com.om.To_Do.List.ecosystem.controller;
 
-
 import com.om.To_Do.List.ecosystem.dto.*;
-import com.om.To_Do.List.ecosystem.model.ToDoItem;
 import com.om.To_Do.List.ecosystem.services.ToDoListService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -195,11 +193,11 @@ public class ToDoListController {
     }
 
     @GetMapping("/{listId}/sync")
-    public ResponseEntity<List<ToDoItem>> getUpdatesSince(
+    public ResponseEntity<List<ToDoItemRes>> getUpdatesSince(
             @PathVariable Long listId,
             @RequestParam("since") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime since
     ) {
-        return ResponseEntity.ok(toDoListService.getUpdatesSince(listId, since));
+        return ResponseEntity.ok(toDoListService.getUpdatesSinceDto(listId, since));
     }
 
     @PostMapping("/{listId}/sync")

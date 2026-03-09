@@ -37,7 +37,6 @@ public class ToDoItem {
 
     @ManyToOne
     @JoinColumn(name = "list_id")
-    @JsonIgnore
     private ToDoList list;
 
     public ToDoItem() {
@@ -114,6 +113,7 @@ public class ToDoItem {
         this.subQuantitiesJson = subQuantitiesJson;
     }
 
+    @JsonIgnore
     public ToDoList getList() {
         return list;
     }
