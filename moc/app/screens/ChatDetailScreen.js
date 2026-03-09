@@ -2281,7 +2281,17 @@ const makeReplyPayload = useCallback(
           },
         });
       case 'music':
-        return router.push('/screens/AudioPickerScreen');
+        return router.push({
+          pathname: '/screens/AudioPickerScreen',
+          params: {
+            roomId: roomId != null ? String(roomId) : undefined,
+            roomKey: roomKey ?? undefined,
+            peerId: peerId != null ? String(peerId) : undefined,
+            phone: phoneNumber || undefined,
+            title: chatTitle,
+            ...(avatarUri ? { image: avatarUri } : {}),
+          },
+        });
       case 'contacts':
         return router.push('/screens/ContactPickerScreen');
       case 'camera':

@@ -15,7 +15,8 @@ import Modal from 'react-native-modal';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
-import avatarService from '../services/avatarService';
+import { uploadAvatar } from '../services/avatarService';
+import { compressImageForChatStandard } from '../services/imageCompression';
 
 export default function ProfilePhotoScreen() {
   const router = useRouter();
@@ -33,7 +34,11 @@ export default function ProfilePhotoScreen() {
 
     try {
       setIsUploading(true);
-      const uploadedAvatarUrl = await avatarService.uploadAvatar(selectedUri, mimeType);
+      const compressed = await compressImageForChatStandard({ uri: selectedUri });
+      const compressedUri = compressed?.uri || selectedUri;
+      const uploadedAvatarUrl = await uploadAvatar(compressedUri, mimeType, {
+        alreadyCompressed: true,
+      });
       setPhotoUri(uploadedAvatarUrl);
       router.replace({
         pathname: '/screens/AccountSettings',

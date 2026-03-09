@@ -20,7 +20,7 @@ export default function PhotoPickerScreen() {
 
   useEffect(() => {
     (async () => {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
+      const { status } = await MediaLibrary.requestPermissionsAsync(false, ['photo']);
       if (status !== 'granted') return;
 
       const { assets } = await MediaLibrary.getAssetsAsync({

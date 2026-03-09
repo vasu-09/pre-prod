@@ -10,6 +10,10 @@ type AvatarIntentResponse = {
   signedUrl?: string;
 };
 
+type UploadAvatarOptions = {
+  alreadyCompressed?: boolean;
+};
+
 const inferContentType = (uri: string, fallback?: string) => {
   if (fallback && fallback.startsWith('image/')) {
     return fallback;
@@ -63,9 +67,15 @@ const uploadToSignedUrl = async (putUrl: string, blob: Blob, contentType: string
   }
 };
 
-export const uploadAvatar = async (uri: string, mimeType?: string | null): Promise<string> => {
-  const compressed = await compressImageForChatStandard({ uri });
-  const uploadUri = compressed?.uri || uri;
+export const uploadAvatar = async (
+  uri: string,
+  mimeType?: string | null,
+  options: UploadAvatarOptions = {},
+): Promise<string> => {
+  const uploadSource = options.alreadyCompressed
+    ? { uri }
+    : await compressImageForChatStandard({ uri });
+  const uploadUri = uploadSource?.uri || uri;
   const fallbackContentType = inferContentType(uploadUri, mimeType ?? undefined);
   const uploadPayload = await getUploadPayload(uploadUri, fallbackContentType);
 

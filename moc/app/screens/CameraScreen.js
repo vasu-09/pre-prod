@@ -19,47 +19,97 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 const CamType = { back: 'back', front: 'front' };
 const CamFlash = { off: 'off', on: 'on', auto: 'auto', torch: 'torch' };
 
-const normalizeSelectedItem = item => {
+const isVideoAsset = (item) => {
+  const mediaType = item?.mediaType;
+  return (
+    mediaType === 'video' ||
+    mediaType === MediaLibrary.MediaType?.video ||
+    item?.mimeType?.startsWith('video/')
+  );
+};
+
+const normalizeSelectedItem = (item) => {
   if (!item) return null;
+
   if (typeof item === 'string') {
-    return { uri: item };
+    return { uri: item, mediaType: 'photo' };
   }
+
   if (typeof item?.uri === 'string' && item.uri) {
+    const isVideo = isVideoAsset(item);
+
     return {
       uri: item.uri,
       width: typeof item?.width === 'number' ? item.width : undefined,
       height: typeof item?.height === 'number' ? item.height : undefined,
-      mimeType: typeof item?.mimeType === 'string' ? item.mimeType : undefined,
+      mimeType:
+        typeof item?.mimeType === 'string'
+          ? item.mimeType
+          : isVideo
+          ? 'video/mp4'
+          : 'image/jpeg',
+      mediaType: isVideo ? 'video' : 'photo',
+      duration: typeof item?.duration === 'number' ? item.duration : undefined,
+      filename:
+        typeof item?.filename === 'string'
+          ? item.filename
+          : typeof item?.name === 'string'
+          ? item.name
+          : undefined,
+      assetId: item?.id ? String(item.id) : undefined,
     };
   }
+
   return null;
+};
+
+const formatDuration = (value) => {
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return '';
+
+  // Some APIs return seconds, some milliseconds. Normalize roughly.
+  const totalSeconds = value > 1000 ? Math.floor(value / 1000) : Math.floor(value);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 };
 
 function CameraScreen() {
   const router = useRouter();
-  const { returnTo, chatReturnTo, roomId, roomKey, title, peerId, image, phone } = useLocalSearchParams();
+  const {
+    returnTo,
+    chatReturnTo,
+    roomId,
+    roomKey,
+    title,
+    peerId,
+    image,
+    phone,
+  } = useLocalSearchParams();
 
   const insets = useSafeAreaInsets();
   const cameraRef = useRef(null);
 
-  // Permissions
   const [camPerm, requestCamPerm] = useCameraPermissions();
-  const [medPerm, requestMedPerm] = MediaLibrary.usePermissions();
+  const [medPerm, requestMedPerm] = MediaLibrary.usePermissions({
+    writeOnly: false,
+    granularPermissions: ['photo', 'video'],
+  });
 
-  // Camera state
   const [type, setType] = useState(CamType.back);
   const [flash, setFlash] = useState(CamFlash.off);
 
-  // Media strip
   const [recent, setRecent] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
 
   const onSelect = useCallback(
-  (items) => {
+    (items) => {
       const selected = Array.isArray(items)
         ? items.map(normalizeSelectedItem).filter(Boolean)
         : [normalizeSelectedItem(items)].filter(Boolean);
+
       if (!selected.length) return;
+
       router.replace({
         pathname: returnTo || '/screens/MediaComposerScreen',
         params: {
@@ -74,39 +124,56 @@ function CameraScreen() {
         },
       });
     },
-    [router, returnTo, chatReturnTo, roomId, roomKey, title, peerId, image, phone],
+    [router, returnTo, chatReturnTo, roomId, roomKey, title, peerId, image, phone]
   );
 
-  // Request permissions on mount
   useEffect(() => {
     (async () => {
-      if (!camPerm?.granted) await requestCamPerm();
-      if (!medPerm?.granted) await requestMedPerm();
+      try {
+        if (!camPerm?.granted) {
+          await requestCamPerm();
+        }
+        if (!medPerm?.granted) {
+          await requestMedPerm();
+        }
+      } catch (e) {
+        console.warn('Permission request error:', e);
+      }
     })();
   }, [camPerm, medPerm, requestCamPerm, requestMedPerm]);
 
-  // Load recent photos
-  useEffect(() => {
-    (async () => {
-      if (!medPerm?.granted) return;
-      try {
-        setLoadingRecent(true);
-        const { assets } = await MediaLibrary.getAssetsAsync({
-          first: 25,
-          mediaType: ['photo'],
-          sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-        });
-        setRecent(assets);
-      } catch (e) {
-        console.warn('Media load error:', e);
-      } finally {
-        setLoadingRecent(false);
-      }
-    })();
+  const loadRecentMedia = useCallback(async () => {
+    if (!medPerm?.granted) {
+      setRecent([]);
+      setLoadingRecent(false);
+      return;
+    }
+
+    try {
+      setLoadingRecent(true);
+
+      const page = await MediaLibrary.getAssetsAsync({
+        first: 40,
+        mediaType: ['photo', 'video'],
+        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+      });
+
+      setRecent(page?.assets || []);
+    } catch (e) {
+      console.warn('Media load error:', e);
+      setRecent([]);
+    } finally {
+      setLoadingRecent(false);
+    }
   }, [medPerm]);
+
+  useEffect(() => {
+    loadRecentMedia();
+  }, [loadRecentMedia]);
 
   const takePhoto = async () => {
     if (!cameraRef.current) return;
+
     try {
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
@@ -121,12 +188,13 @@ function CameraScreen() {
   const openGallery = async () => {
     try {
       const res = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images', 'videos'],
         quality: 0.8,
         allowsMultipleSelection: true,
         orderedSelection: true,
         selectionLimit: 10,
       });
+
       if (!res.canceled) {
         onSelect(res.assets || []);
       }
@@ -154,19 +222,66 @@ function CameraScreen() {
     setType((t) => (t === CamType.back ? CamType.front : CamType.back));
   };
 
-  // Permission UI
+  const openRecentItem = (item) => {
+    onSelect({
+      uri: item.uri,
+      width: item.width,
+      height: item.height,
+      mediaType: isVideoAsset(item) ? 'video' : 'photo',
+      mimeType:
+        item?.mimeType ||
+        (isVideoAsset(item) ? 'video/mp4' : 'image/jpeg'),
+      duration: item?.duration,
+      filename: item?.filename,
+      id: item?.id,
+    });
+  };
+
+  const renderRecentItem = ({ item }) => {
+    const isVideo = isVideoAsset(item);
+
+    return (
+      <TouchableOpacity
+        style={styles.thumbBtn}
+        activeOpacity={0.85}
+        onPress={() => openRecentItem(item)}
+      >
+        {isVideo ? (
+          <View style={styles.videoThumb}>
+            <Ionicons name="play-circle" size={24} color="#fff" />
+            {!!formatDuration(item?.duration) && (
+              <Text style={styles.videoDuration}>{formatDuration(item?.duration)}</Text>
+            )}
+          </View>
+        ) : (
+          <Image source={{ uri: item.uri }} style={styles.thumb} />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   if (camPerm == null || medPerm == null) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator />
+        <ActivityIndicator color="#fff" />
       </View>
     );
   }
+
   if (!camPerm.granted) {
     return (
       <PermissionBlock
         title="Camera permission needed"
         onPress={requestCamPerm}
+      />
+    );
+  }
+
+  if (!medPerm.granted) {
+    return (
+      <PermissionBlock
+        title="Photos and videos permission needed"
+        onPress={requestMedPerm}
       />
     );
   }
@@ -181,7 +296,6 @@ function CameraScreen() {
         ratio="16:9"
       />
 
-      {/* Close button */}
       <SafeAreaView
         pointerEvents="box-none"
         style={[styles.topBar, { paddingTop: insets.top + 8 }]}
@@ -205,27 +319,21 @@ function CameraScreen() {
             color="#fff"
           />
         </TouchableOpacity>
-
       </SafeAreaView>
 
-      {/* Recent photos strip */}
       <View style={[styles.stripWrap, { bottom: 140 }]}>
         {loadingRecent ? (
-          <ActivityIndicator color="#fff" />
+          <View style={styles.loadingStrip}>
+            <ActivityIndicator color="#fff" />
+          </View>
         ) : (
           <FlatList
-            horizontal
             data={recent}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => String(item.id)}
+            horizontal
             showsHorizontalScrollIndicator={false}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.thumbBtn}
-                onPress={() => onSelect(item)}
-              >
-                <Image source={{ uri: item.uri }} style={styles.thumb} />
-              </TouchableOpacity>
-            )}
+            contentContainerStyle={styles.stripList}
+            renderItem={renderRecentItem}
             ListHeaderComponent={
               <TouchableOpacity style={styles.galleryBtn} onPress={openGallery}>
                 <Ionicons name="images" size={28} color="#fff" />
@@ -235,7 +343,6 @@ function CameraScreen() {
         )}
       </View>
 
-      {/* Bottom controls */}
       <SafeAreaView
         pointerEvents="box-none"
         style={[styles.bottomBar, { paddingBottom: insets.bottom + 16 }]}
@@ -259,9 +366,9 @@ function CameraScreen() {
 function PermissionBlock({ title, onPress }) {
   return (
     <View style={styles.center}>
-      <Text style={{ color: '#fff', marginBottom: 12 }}>{title}</Text>
+      <Text style={styles.permissionText}>{title}</Text>
       <TouchableOpacity onPress={onPress} style={styles.permBtn}>
-        <Text style={{ color: '#000', fontWeight: '600' }}>Grant</Text>
+        <Text style={styles.permBtnText}>Grant</Text>
       </TouchableOpacity>
     </View>
   );
@@ -291,23 +398,52 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingVertical: 6,
   },
+  loadingStrip: {
+    height: 72,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stripList: {
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
   galleryBtn: {
     width: 60,
     height: 60,
-    marginHorizontal: 8,
-    borderRadius: 6,
+    marginHorizontal: 4,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.45)',
   },
   thumbBtn: {
     marginHorizontal: 4,
-    borderRadius: 6,
+    borderRadius: 8,
     overflow: 'hidden',
   },
   thumb: {
     width: 60,
     height: 60,
+    borderRadius: 8,
+  },
+  videoThumb: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoDuration: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    fontSize: 10,
+    color: '#fff',
+    fontWeight: '700',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    paddingHorizontal: 4,
+    borderRadius: 4,
   },
 
   bottomBar: {
@@ -348,12 +484,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  permissionText: {
+    color: '#fff',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   permBtn: {
     backgroundColor: '#fff',
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 6,
+  },
+  permBtnText: {
+    color: '#000',
+    fontWeight: '600',
   },
 });
 

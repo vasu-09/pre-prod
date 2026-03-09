@@ -22,11 +22,6 @@
         "WRITE_CONTACTS",
         "READ_MEDIA_IMAGES",
         "READ_MEDIA_VIDEO",
-        "READ_MEDIA_AUDIO",
-        "READ_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES",
-        "READ_MEDIA_VIDEO",
-        "READ_MEDIA_AUDIO",
         "READ_EXTERNAL_STORAGE"
       ],
       "adaptiveIcon": {
@@ -53,6 +48,21 @@
         }
       ],
       "expo-asset",
+      [
+        "expo-media-library",
+        {
+          "granularPermissions": [
+            "photo",
+            "video"
+          ]
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "microphonePermission": false
+        }
+      ],
       "expo-audio"
     ],
     "experiments": {
