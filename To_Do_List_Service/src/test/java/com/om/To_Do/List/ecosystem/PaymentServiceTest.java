@@ -2,6 +2,7 @@ package com.om.To_Do.List.ecosystem;
 
 import com.om.To_Do.List.ecosystem.model.Subscription;
 import com.om.To_Do.List.ecosystem.repository.PaymentRepository;
+import com.om.To_Do.List.ecosystem.repository.ProcessedWebhookEventRepository;
 import com.om.To_Do.List.ecosystem.repository.SubscriptionRepository;
 import com.om.To_Do.List.ecosystem.services.PaymentService;
 import com.om.To_Do.List.ecosystem.services.TokenEncryptor;
@@ -31,6 +32,7 @@ public class PaymentServiceTest {
     private PaymentService paymentService;
     private SubscriptionRepository subscriptionRepo;
     private RazorpayClient razorpayClient;
+    private ProcessedWebhookEventRepository processedWebhookEventRepo;
 
     @BeforeEach
     void setUp() {
@@ -38,6 +40,9 @@ public class PaymentServiceTest {
         subscriptionRepo = Mockito.mock(SubscriptionRepository.class);
         ReflectionTestUtils.setField(paymentService, "subscriptionRepo", subscriptionRepo);
         ReflectionTestUtils.setField(paymentService, "paymentRepo", Mockito.mock(PaymentRepository.class));
+        processedWebhookEventRepo = Mockito.mock(ProcessedWebhookEventRepository.class);
+        when(processedWebhookEventRepo.existsById(any())).thenReturn(false);
+        ReflectionTestUtils.setField(paymentService, "processedWebhookEventRepo", processedWebhookEventRepo);
         ReflectionTestUtils.setField(paymentService, "webhookSecret", "secret");
         TokenEncryptor tokenEncryptor = Mockito.mock(TokenEncryptor.class);
         when(tokenEncryptor.encrypt(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -73,7 +78,7 @@ public class PaymentServiceTest {
         when(subscriptionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         String payload = "{ \"event\":\"subscription.activated\", \"payload\":{\"subscription\":{\"entity\":{\"id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(payload, sign(payload));
+        paymentService.handleWebhook(payload, sign(payload), null);
 
         assertTrue(paymentService.isSubscriptionActive(1L));
     }
@@ -92,7 +97,7 @@ public class PaymentServiceTest {
 
         LocalDate before = sub.getExpiryDate();
         String payload = "{ \"event\":\"invoice.paid\", \"payload\":{\"invoice\":{\"entity\":{\"subscription_id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(payload, sign(payload));
+        paymentService.handleWebhook(payload, sign(payload), null);
 
         assertTrue(paymentService.isSubscriptionActive(1L));
         assertTrue(sub.getExpiryDate().isAfter(before));
@@ -110,7 +115,7 @@ public class PaymentServiceTest {
         when(subscriptionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         String payload = "{ \"event\":\"invoice.payment_failed\", \"payload\":{\"invoice\":{\"entity\":{\"subscription_id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(payload, sign(payload));
+        paymentService.handleWebhook(payload, sign(payload), null);
 
         assertFalse(paymentService.isSubscriptionActive(1L));
     }
@@ -127,7 +132,7 @@ public class PaymentServiceTest {
         when(subscriptionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         String payload = "{ \"event\":\"subscription.cancelled\", \"payload\":{\"subscription\":{\"entity\":{\"id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(payload, sign(payload));
+        paymentService.handleWebhook(payload, sign(payload), null);
 
         assertFalse(paymentService.isSubscriptionActive(1L));
     }
@@ -174,6 +179,39 @@ public class PaymentServiceTest {
         assertEquals(false, resp.get("isActive"));
         assertFalse(Boolean.TRUE.equals(sub.getActive()));
         assertNull(sub.getPaymentToken());
+    }
+
+    @Test
+    void reconcileSubscriptionMapsExpiredStatusAndClearsToken() throws Exception {
+        Subscription sub = new Subscription();
+        sub.setUserId(10L);
+        sub.setSubscriptionId("sub_expired");
+        sub.setActive(true);
+        sub.setPaymentToken("encrypted-token");
+
+        when(subscriptionRepo.findByUserId(10L)).thenReturn(Optional.of(sub));
+        when(subscriptionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Entity fetched = Mockito.mock(Entity.class);
+        when(fetched.toString()).thenReturn("{\"id\":\"sub_expired\",\"status\":\"expired\"}");
+        when(razorpayClient.subscriptions.fetch(eq("sub_expired"))).thenReturn(fetched);
+
+        var resp = paymentService.reconcileSubscription(10L);
+
+        assertEquals("expired", resp.get("razorpayStatus"));
+        assertEquals(false, resp.get("isActive"));
+        assertFalse(Boolean.TRUE.equals(sub.getActive()));
+        assertNull(sub.getPaymentToken());
+    }
+
+    @Test
+    void duplicateWebhookEventIdIsIgnored() {
+        when(processedWebhookEventRepo.existsById("evt_1")).thenReturn(true);
+
+        String payload = "{ \"event\":\"subscription.activated\", \"payload\":{\"subscription\":{\"entity\":{\"id\":\"sub_123\"}}}}";
+        paymentService.handleWebhook(payload, sign(payload), "evt_1");
+
+        Mockito.verify(subscriptionRepo, Mockito.never()).save(any());
     }
 
 }

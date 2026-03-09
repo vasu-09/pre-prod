@@ -1,7 +1,9 @@
 package com.om.To_Do.List.ecosystem.services;
 
+import com.om.To_Do.List.ecosystem.model.ProcessedWebhookEvent;
 import com.om.To_Do.List.ecosystem.model.Subscription;
 import com.om.To_Do.List.ecosystem.repository.PaymentRepository;
+import com.om.To_Do.List.ecosystem.repository.ProcessedWebhookEventRepository;
 import com.om.To_Do.List.ecosystem.repository.SubscriptionRepository;
 import com.razorpay.Entity;
 import com.razorpay.RazorpayClient;
@@ -30,6 +32,9 @@ public class PaymentService {
     private  PaymentRepository paymentRepo;
     @Autowired
     private  SubscriptionRepository subscriptionRepo;
+
+     @Autowired
+    private ProcessedWebhookEventRepository processedWebhookEventRepo;
 
     @Autowired
     private TokenEncryptor tokenEncryptor;
@@ -192,9 +197,15 @@ public class PaymentService {
      *  - subscription.cancelled  -> mark inactive
      */
     @Transactional
-    public void handleWebhook(String payload, String signature) {
+    public void handleWebhook(String payload, String signature, String eventId) {
         try {
             Utils.verifyWebhookSignature(payload, signature, webhookSecret);
+
+            String normalizedEventId = blankToNull(eventId);
+            if (normalizedEventId != null && processedWebhookEventRepo.existsById(normalizedEventId)) {
+                System.out.println("[RAZORPAY][WEBHOOK] Duplicate eventId ignored=" + normalizedEventId);
+                return;
+            }
 
             JSONObject root = new JSONObject(payload);
             String event = root.optString("event", "");
@@ -249,6 +260,10 @@ public class PaymentService {
 
                 default:
                     System.out.println("[RAZORPAY][WEBHOOK] Ignored event=" + event);
+            }
+
+            if (normalizedEventId != null) {
+                processedWebhookEventRepo.save(new ProcessedWebhookEvent(normalizedEventId, LocalDateTime.now(IST)));
             }
 
         } catch (Exception e) {
@@ -577,6 +592,7 @@ public class PaymentService {
             case "cancelled":
             case "completed":
             case "paused":
+            case "expired":
                 sub.setActive(false);
                 sub.setPaymentToken(null);
                 break;

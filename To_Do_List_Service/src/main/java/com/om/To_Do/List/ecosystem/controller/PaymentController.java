@@ -3,6 +3,8 @@ import com.om.To_Do.List.ecosystem.services.PaymentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -43,8 +45,9 @@ public class PaymentController {
     /**
      * Reconcile local subscription with Razorpay live status.
      */
-    @PostMapping("/subscriptions/{userId}/reconcile")
-    public ResponseEntity<?> reconcileSubscription(@PathVariable Long userId) {
+    @PostMapping("/subscriptions/reconcile")
+    public ResponseEntity<?> reconcileSubscription(@AuthenticationPrincipal Jwt jwt) {
+        Long userId = Long.valueOf(jwt.getSubject());
         var resp = paymentService.reconcileSubscription(userId);
         return ResponseEntity.ok(resp);
     }
@@ -64,8 +67,9 @@ public class PaymentController {
      */
     @PostMapping("/webhook")
     public ResponseEntity<?> webhook(@RequestHeader("X-Razorpay-Signature") String signature,
+                                     @RequestHeader(value = "X-Razorpay-Event-Id", required = false) String eventId,
                                      @RequestBody String payload) {
-        paymentService.handleWebhook(payload, signature);
+        paymentService.handleWebhook(payload, signature, eventId);
         return ResponseEntity.ok(Map.of("ok", true));
     }
 

@@ -94,24 +94,24 @@ public class ToDoListServiceAccessTest {
 
         // Activate subscription -> premium allowed
         String activatePayload = "{ \"event\":\"subscription.activated\", \"payload\":{\"subscription\":{\"entity\":{\"id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(activatePayload, sign(activatePayload));
+        paymentService.handleWebhook(activatePayload, sign(activatePayload), null);
         assertDoesNotThrow(() -> toDoListService.createList(listReq));
 
         // Renewal payment keeps access
         String paidPayload = "{ \"event\":\"invoice.paid\", \"payload\":{\"invoice\":{\"entity\":{\"subscription_id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(paidPayload, sign(paidPayload));
+        paymentService.handleWebhook(paidPayload, sign(paidPayload), null);
         assertDoesNotThrow(() -> toDoListService.createList(listReq));
 
         // Payment failure revokes access
         String failPayload = "{ \"event\":\"invoice.payment_failed\", \"payload\":{\"invoice\":{\"entity\":{\"subscription_id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(failPayload, sign(failPayload));
+        paymentService.handleWebhook(failPayload, sign(failPayload), null);
         assertThrows(AccessDeniedException.class, () -> toDoListService.createList(listReq));
 
         // Reactivate and then cancel
-        paymentService.handleWebhook(activatePayload, sign(activatePayload));
+        paymentService.handleWebhook(activatePayload, sign(activatePayload), null);
         assertDoesNotThrow(() -> toDoListService.createList(listReq));
         String cancelPayload = "{ \"event\":\"subscription.cancelled\", \"payload\":{\"subscription\":{\"entity\":{\"id\":\"sub_123\"}}}}";
-        paymentService.handleWebhook(cancelPayload, sign(cancelPayload));
+        paymentService.handleWebhook(cancelPayload, sign(cancelPayload), null);
         assertThrows(AccessDeniedException.class, () -> toDoListService.createList(listReq));
     }
 }
