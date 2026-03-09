@@ -4,8 +4,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
+  Modal,
+  Pressable,
   StatusBar,
   StyleSheet,
   Text,
@@ -14,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useChatRegistry } from '../context/ChatContext';
 
 import apiClient from '../services/apiClient';
 import { getStoredSession } from '../services/authStorage';
@@ -23,9 +27,11 @@ import {
   initializeDatabase,
   saveListSummaryToDb,
 } from '../services/database';
+import { createDirectRoom } from '../services/roomsService';
 
 export default function ListInfoScreen() {
   const router = useRouter();
+  const { upsertRoom } = useChatRegistry();
   const { listName, description, members, listId: rawListId } = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const memberArr = useMemo(() => (members ? JSON.parse(members) : []), [members]);
@@ -40,6 +46,11 @@ export default function ListInfoScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [listTitle, setListTitle] = useState(listName ?? '');
   const [listDescription, setListDescription] = useState(description ?? '');
+  const [selectedRecipient, setSelectedRecipient] = useState(null);
+  const [actionMenuVisible, setActionMenuVisible] = useState(false);
+  const [removeConfirmVisible, setRemoveConfirmVisible] = useState(false);
+  const [isRemoving, setIsRemoving] = useState(false);
+  const [isOpeningChat, setIsOpeningChat] = useState(false);
 
   const existingRecipientIdsParam = useMemo(
     () => JSON.stringify((recipients ?? []).map((recipient) => String(recipient?.id ?? '')).filter(Boolean)),
@@ -178,8 +189,157 @@ export default function ListInfoScreen() {
     });
   }, [existingRecipientIdsParam, listId, listTitle, router]);
 
+  const closeActionMenu = useCallback(() => {
+    setActionMenuVisible(false);
+    setSelectedRecipient(null);
+  }, []);
+
+  const closeRemoveConfirmation = useCallback(() => {
+    if (isRemoving) {
+      return;
+    }
+    setRemoveConfirmVisible(false);
+  }, [isRemoving]);
+
+  const handleOpenRecipientActions = useCallback((recipient) => {
+    setSelectedRecipient(recipient);
+    setActionMenuVisible(true);
+  }, []);
+
+  const handleViewRecipient = useCallback(() => {
+    if (!selectedRecipient) {
+      closeActionMenu();
+      return;
+    }
+
+    const routeParams = {
+      name: selectedRecipient.name ?? 'Unknown contact',
+      image: selectedRecipient.img ?? '',
+      phone: selectedRecipient.phone ?? '',
+      media: JSON.stringify([]),
+    };
+
+    closeActionMenu();
+    router.push({
+      pathname: '/screens/ContactProfileScreen',
+      params: routeParams,
+    });
+  }, [closeActionMenu, router, selectedRecipient]);
+
+  const handleMessageRecipient = useCallback(async () => {
+    if (!selectedRecipient) {
+      closeActionMenu();
+      return;
+    }
+
+    const participantId = Number(selectedRecipient.id);
+    if (!Number.isInteger(participantId) || participantId <= 0) {
+      closeActionMenu();
+      Alert.alert('Unable to start chat', 'This recipient does not have a valid MoC account.');
+      return;
+    }
+
+    const roomTitle = selectedRecipient.name ?? selectedRecipient.phone ?? 'Chat';
+    const roomAvatar = selectedRecipient.img ?? null;
+    const recipientPhone = selectedRecipient.phone ? String(selectedRecipient.phone) : '';
+
+    try {
+      setIsOpeningChat(true);
+      const room = await createDirectRoom(participantId);
+      upsertRoom({
+        id: room.id,
+        roomKey: room.roomId,
+        title: roomTitle,
+        avatar: roomAvatar,
+        peerId: participantId,
+        peerPhone: recipientPhone || null,
+      });
+
+      closeActionMenu();
+      router.push({
+        pathname: '/screens/ChatDetailScreen',
+        params: {
+          roomId: String(room.id),
+          roomKey: room.roomId,
+          title: roomTitle,
+          peerId: String(participantId),
+          phone: recipientPhone,
+          image: roomAvatar ?? undefined,
+        },
+      });
+    } catch (error) {
+      console.warn('Unable to start direct chat from list info', error);
+      Alert.alert('Unable to start chat', 'Please try again in a moment.');
+    } finally {
+      setIsOpeningChat(false);
+    }
+  }, [closeActionMenu, router, selectedRecipient, upsertRoom]);
+
+  const handlePromptRemoveRecipient = useCallback(() => {
+    if (!selectedRecipient) {
+      closeActionMenu();
+      return;
+    }
+
+    setActionMenuVisible(false);
+    setRemoveConfirmVisible(true);
+  }, [closeActionMenu, selectedRecipient]);
+
+  const handleRemoveRecipient = useCallback(async () => {
+    if (!selectedRecipient) {
+      setRemoveConfirmVisible(false);
+      return;
+    }
+
+    const phoneNumber = selectedRecipient.phone ? String(selectedRecipient.phone).trim() : '';
+    if (!phoneNumber) {
+      setRemoveConfirmVisible(false);
+      setSelectedRecipient(null);
+      Alert.alert('Unable to remove recipient', 'This recipient is missing a phone number.');
+      return;
+    }
+
+    if (!listId) {
+      setRemoveConfirmVisible(false);
+      setSelectedRecipient(null);
+      Alert.alert('Unable to remove recipient', 'Missing list identifier.');
+      return;
+    }
+
+    try {
+      setIsRemoving(true);
+      const session = await getStoredSession();
+      const userId = session?.userId ? String(session.userId) : null;
+      if (!userId) {
+        throw new Error('Missing account information. Please sign in again.');
+      }
+
+      await apiClient.delete(
+        `/api/lists/${encodeURIComponent(String(listId))}/recipients-by-phone`,
+        {
+          headers: { 'X-User-Id': userId },
+          data: phoneNumber,
+        },
+      );
+
+      setRemoveConfirmVisible(false);
+      setSelectedRecipient(null);
+      await fetchRecipients();
+    } catch (error) {
+      console.error('Failed to remove recipient from list', error);
+      Alert.alert('Unable to remove recipient', 'Please try again in a moment.');
+    } finally {
+      setIsRemoving(false);
+    }
+  }, [fetchRecipients, listId, selectedRecipient]);
+
   const renderMember = ({ item }) => (
-    <View style={styles.memberRow}>
+    <TouchableOpacity
+      style={styles.memberRow}
+      activeOpacity={1}
+      onLongPress={() => handleOpenRecipientActions(item)}
+      delayLongPress={220}
+    >
       {item.img ? (
         <Image source={{ uri: item.img }} style={styles.avatar} />
       ) : (
@@ -197,7 +357,7 @@ export default function ListInfoScreen() {
           </Text>
         ) : null}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   const renderEmpty = () => (
@@ -254,6 +414,78 @@ export default function ListInfoScreen() {
         </View>
 
       </View>
+
+      <Modal
+        visible={actionMenuVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeActionMenu}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeActionMenu}>
+          <Pressable style={styles.actionMenuCard} onPress={() => {}}>
+            <TouchableOpacity
+              style={styles.actionMenuItem}
+              onPress={handleViewRecipient}
+            >
+              <Text style={styles.actionMenuText}>View {selectedRecipient?.name ?? 'contact'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionMenuItem}
+              onPress={handleMessageRecipient}
+              disabled={isOpeningChat}
+            >
+              <Text style={styles.actionMenuText}>
+                {isOpeningChat
+                  ? 'Opening chat…'
+                  : `Message ${selectedRecipient?.name ?? 'contact'}`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionMenuItem}
+              onPress={handlePromptRemoveRecipient}
+            >
+              <Text style={[styles.actionMenuText, styles.removeActionText]}>
+                Remove {selectedRecipient?.name ?? 'contact'}
+              </Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={removeConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeRemoveConfirmation}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeRemoveConfirmation}>
+          <Pressable style={styles.confirmCard} onPress={() => {}}>
+            <Text style={styles.confirmText}>
+              Remove {selectedRecipient?.name ?? 'this recipient'} from {listTitle || 'this list'}?
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={[styles.confirmButton, styles.confirmCancel]}
+                onPress={closeRemoveConfirmation}
+                disabled={isRemoving}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmButton, styles.confirmOk]}
+                onPress={handleRemoveRecipient}
+                disabled={isRemoving}
+              >
+                {isRemoving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.confirmOkText}>OK</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -330,4 +562,65 @@ const styles = StyleSheet.create({
   subText: { fontSize: 12, color: '#777', marginTop: 2 },
   emptyState: { paddingVertical: 24, alignItems: 'center' },
   emptyText: { marginTop: 8, color: '#666', fontSize: 13 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  actionMenuCard: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingVertical: 4,
+    elevation: 6,
+  },
+  actionMenuItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  actionMenuText: {
+    fontSize: 16,
+    color: '#1a1a1a',
+  },
+  removeActionText: {
+    color: '#b3261e',
+  },
+  confirmCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    elevation: 6,
+  },
+  confirmText: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  confirmButton: {
+    minWidth: 84,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  confirmCancel: {
+    backgroundColor: '#eceff1',
+  },
+  confirmCancelText: {
+    color: '#1f6ea7',
+    fontWeight: '600',
+  },
+  confirmOk: {
+    backgroundColor: '#1f6ea7',
+  },
+  confirmOkText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
 });
