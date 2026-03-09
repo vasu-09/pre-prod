@@ -1,6 +1,7 @@
 // ListInfoScreen.js
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -39,6 +40,11 @@ export default function ListInfoScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [listTitle, setListTitle] = useState(listName ?? '');
   const [listDescription, setListDescription] = useState(description ?? '');
+
+  const existingRecipientIdsParam = useMemo(
+    () => JSON.stringify((recipients ?? []).map((recipient) => String(recipient?.id ?? '')).filter(Boolean)),
+    [recipients],
+  );
 
   useEffect(() => {
     setListTitle(listName ?? '');
@@ -84,91 +90,93 @@ export default function ListInfoScreen() {
     };
   }, [listId]);
 
-  useEffect(() => {
-    let isMounted = true;
+  const fetchRecipients = useCallback(async () => {
+    if (!listId) {
+      setErrorMessage('Missing list identifier.');
+      setRecipients(memberArr);
+      return;
+    }
 
-    const fetchRecipients = async () => {
-      if (!listId) {
-        setErrorMessage('Missing list identifier.');
+    setIsLoading(true);
+    setErrorMessage('');
+
+    try {
+      const session = await getStoredSession();
+      const userId = session?.userId ? String(session.userId) : null;
+
+      if (!userId) {
+        setErrorMessage('Missing account information. Please sign in again.');
         setRecipients(memberArr);
         return;
       }
 
-      setIsLoading(true);
-      setErrorMessage('');
+      const { data } = await apiClient.get(
+        `/api/lists/${encodeURIComponent(listId)}/recipients`,
+        { headers: { 'X-User-Id': userId } },
+      );
 
-      try {
-        const session = await getStoredSession();
-        const userId = session?.userId ? String(session.userId) : null;
+      if (data?.title && !listTitle) {
+        setListTitle(String(data.title));
+      }
 
-        if (!userId) {
-          setErrorMessage('Missing account information. Please sign in again.');
-          setRecipients(memberArr);
-          return;
-        }
+      const recipientIds = Array.isArray(data?.recipientUserIds) ? data.recipientUserIds : [];
+      const contacts = await getAllContactsFromDb();
 
-        const { data } = await apiClient.get(
-          `/api/lists/${encodeURIComponent(listId)}/recipients`,
-          { headers: { 'X-User-Id': userId } },
+      const normalizedRecipients = recipientIds.map((recipientId) => {
+        const matchedContact = contacts.find(
+          (contact) => String(contact.matchUserId) === String(recipientId),
         );
 
-        if (data?.title && !listTitle) {
-          setListTitle(String(data.title));
-        }
+         return {
+          id: String(recipientId),
+          name: matchedContact?.name ?? `User ${recipientId}`,
+          img: matchedContact?.imageUri ?? null,
+          phone: matchedContact?.matchPhone ?? null,
+        };
+      });
 
-        const recipientIds = Array.isArray(data?.recipientUserIds) ? data.recipientUserIds : [];
-        const contacts = await getAllContactsFromDb();
+      setRecipients(normalizedRecipients);
+      if (!normalizedRecipients.length) {
+        setErrorMessage('No recipients yet.');
+      }
 
-        const normalizedRecipients = recipientIds.map((recipientId) => {
-          const matchedContact = contacts.find(
-            (contact) => String(contact.matchUserId) === String(recipientId),
-          );
-
-          return {
-            id: String(recipientId),
-            name: matchedContact?.name ?? `User ${recipientId}`,
-            img: matchedContact?.imageUri ?? null,
-            phone: matchedContact?.matchPhone ?? null,
-          };
+      try {
+        await initializeDatabase();
+        await saveListSummaryToDb({
+          id: String(listId),
+          title: data?.title ?? listTitle ?? 'Untitled List',
+          description: data?.description ?? listDescription ?? null,
+          members: normalizedRecipients,
         });
 
-        if (isMounted) {
-          setRecipients(normalizedRecipients);
-          if (!normalizedRecipients.length) {
-            setErrorMessage('No recipients yet.');
-          }
-        }
-
-        try {
-          await initializeDatabase();
-          await saveListSummaryToDb({
-            id: String(listId),
-            title: data?.title ?? listTitle ?? 'Untitled List',
-            description: data?.description ?? listDescription ?? null,
-            members: normalizedRecipients,
-          });
         } catch (dbError) {
-          console.error('Failed to cache list recipients', dbError);
-        }
-      } catch (error) {
-        console.error('Failed to load recipients', error);
-        if (isMounted) {
-          setErrorMessage('Unable to load recipients right now. Please try again later.');
-          setRecipients(memberArr);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+        console.error('Failed to cache list recipients', dbError);
       }
-    };
+      } catch (error) {
+      console.error('Failed to load recipients', error);
+      setErrorMessage('Unable to load recipients right now. Please try again later.');
+      setRecipients(memberArr);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [listDescription, listId, listTitle, memberArr]);
 
-    fetchRecipients();
+  useFocusEffect(
+    useCallback(() => {
+      fetchRecipients();
+    }, [fetchRecipients]),
+  );
 
-    return () => {
-      isMounted = false;
-    };
-  }, [listId, memberArr]);
+  const handleOpenAddRecipients = useCallback(() => {
+    router.push({
+      pathname: '/screens/AddListRecipientsScreen',
+      params: {
+        listId: String(listId ?? ''),
+        listTitle: String(listTitle ?? ''),
+        existingRecipientIds: existingRecipientIdsParam,
+      },
+    });
+  }, [existingRecipientIdsParam, listId, listTitle, router]);
 
   const renderMember = ({ item }) => (
     <View style={styles.memberRow}>
@@ -215,7 +223,7 @@ export default function ListInfoScreen() {
           <Icon name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{listTitle}</Text>
-        <TouchableOpacity onPress={() => {/* TODO: more menu */}} style={styles.iconBtn}>
+        <TouchableOpacity onPress={handleOpenAddRecipients} style={styles.iconBtn}>
                   <Icon name="person-add" size={24} color="#fff" />
                 </TouchableOpacity>
       </View>

@@ -40,6 +40,7 @@ export default function RootLayout() {
             <Stack.Screen name="screens/InviteContactsScreen" options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="screens/ListsScreen" options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="screens/LinkListScreen" options={{ presentation: 'fullScreenModal' }} />
+            <Stack.Screen name="screens/AddListRecipientsScreen" options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="screens/SelectedPreview" options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="+not-found" />
           </Stack>
