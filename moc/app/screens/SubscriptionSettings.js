@@ -1,6 +1,6 @@
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -18,17 +18,36 @@ import { getStoredSession } from '../services/authStorage';
 export default function SubscriptionSettings() {
   const router = useRouter();
 
-  // Replace with real subscription data
-  const [isSubscribed] = useState(true);
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [subscriptionStartDate, setSubscriptionStartDate] = useState(null);
+  const [subscriptionExpiryDate, setSubscriptionExpiryDate] = useState(null);
+  const [subscriptionStatusLabel, setSubscriptionStatusLabel] = useState('Not Subscribed');
+  const [razorpayStatus, setRazorpayStatus] = useState(null);
   const [autopayEnabled, setAutopayEnabled] = useState(false);
   const [isSubmittingAutopay, setIsSubmittingAutopay] = useState(false);
+  const [isRefreshingSubscription, setIsRefreshingSubscription] = useState(false);
   const [statusText, setStatusText] = useState('');
-  const startDate = '2025-07-01';
-  const expiryDate = '2025-08-01';
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    const getSubscriptionStatus = async () => {
+  const applySubscriptionState = useCallback((data) => {
+    const active = Boolean(data?.isActive);
+
+    setAutopayEnabled(active);
+    setIsSubscribed(active);
+    setSubscriptionStartDate(data?.startDate ?? data?.subscriptionStartDate ?? null);
+    setSubscriptionExpiryDate(data?.expiryDate ?? data?.subscriptionExpiryDate ?? null);
+    setRazorpayStatus(data?.razorpayStatus ?? null);
+
+    if (typeof data?.statusLabel === 'string' && data.statusLabel.trim().length > 0) {
+      setSubscriptionStatusLabel(data.statusLabel);
+      return;
+    }
+
+    setSubscriptionStatusLabel(active ? 'Active' : 'Not Subscribed');
+  }, []);
+
+  const getSubscriptionStatus = async () => {
     const { data } = await apiClient.get('/api/v1/payments/subscription/status');
     return data;
   };
@@ -68,18 +87,29 @@ export default function SubscriptionSettings() {
     return lastResponse;
   };
 
-  useEffect(() => {
-    const hydrateAutopayStatus = async () => {
-      try {
-        const data = await getSubscriptionStatus();
-        setAutopayEnabled(Boolean(data?.isActive));
-      } catch {
-        // Best-effort passive refresh.
-      }
-    };
+  const refreshSubscriptionState = useCallback(async ({ showProgress = false } = {}) => {
+    if (showProgress) {
+      setIsRefreshingSubscription(true);
+    }
 
-    hydrateAutopayStatus();
-  }, []);
+    try {
+      const data = await getSubscriptionStatus();
+      applySubscriptionState(data);
+      return data;
+    } catch {
+      return null;
+    } finally {
+      if (showProgress) {
+        setIsRefreshingSubscription(false);
+      }
+    }
+  }, [applySubscriptionState]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshSubscriptionState();
+    }, [refreshSubscriptionState]),
+  );
 
   const createAutopaySubscription = async () => {
     if (isSubmittingAutopay) {
@@ -91,6 +121,7 @@ export default function SubscriptionSettings() {
 
       const session = await getStoredSession();
       const email = session?.email ?? null;
+      // username is derived from username/phone claims in authStorage.
       const contact = session?.username ?? null;
 
       const payload = {
@@ -113,9 +144,9 @@ export default function SubscriptionSettings() {
 
       setStatusText('Checking subscription...');
       const finalState = await reconcileWithRetry(6, 2500);
+      applySubscriptionState(finalState);
 
       if (finalState?.isActive === true) {
-        setAutopayEnabled(true);
         Alert.alert('Success', 'Your subscription is active now.');
         return;
       }
@@ -126,12 +157,10 @@ export default function SubscriptionSettings() {
         razorpayStatus === 'created' ||
         razorpayStatus === 'authenticated'
       ) {
-        setAutopayEnabled(false);
         Alert.alert('Pending', 'Authorization is still being confirmed. Please refresh after a moment.');
         return;
       }
 
-      setAutopayEnabled(false);
       Alert.alert('Not active', 'Subscription was not confirmed.');
     } catch (error) {
       const message =
@@ -140,7 +169,6 @@ export default function SubscriptionSettings() {
         'We could not start AutoPay setup. Please try again.';
 
       Alert.alert('AutoPay setup failed', message);
-      setAutopayEnabled(false);
     } finally {
       setIsSubmittingAutopay(false);
       setStatusText('');
@@ -164,15 +192,15 @@ export default function SubscriptionSettings() {
         ]
       );
     } else {
-      setAutopayEnabled(false);
-      // Optionally call backend to cancel the mandate
-      Alert.alert('AutoPay Disabled', 'You will need to renew manually after expiry.');
+      Alert.alert(
+        'AutoPay cancellation not available',
+        'AutoPay cannot be disabled from the app yet.',
+      );
     }
   };
 
   const handleSubscribe = () => {
-    // Placeholder: Navigate to Razorpay/Payment flow
-    Alert.alert('Subscribe', 'Navigate to subscription payment screen.');
+    createAutopaySubscription();
   };
 
   return (
@@ -189,14 +217,18 @@ export default function SubscriptionSettings() {
       <View style={styles.card}>
         <Text style={styles.statusLabel}>Status:</Text>
         <Text style={[styles.statusValue, { color: isSubscribed ? '#1f6ea7' : '#e53935' }]}> 
-          {isSubscribed ? 'Active' : 'Not Subscribed'}
+          {subscriptionStatusLabel}
         </Text>
 
         {isSubscribed && (
           <View style={{ marginTop: 12 }}>
-            <Text style={styles.dateLabel}>Start Date: <Text style={styles.dateValue}>{startDate}</Text></Text>
-            <Text style={styles.dateLabel}>Expiry Date: <Text style={styles.dateValue}>{expiryDate}</Text></Text>
+           <Text style={styles.dateLabel}>Start Date: <Text style={styles.dateValue}>{subscriptionStartDate || '—'}</Text></Text>
+            <Text style={styles.dateLabel}>Expiry Date: <Text style={styles.dateValue}>{subscriptionExpiryDate || '—'}</Text></Text>
           </View>
+        )}
+        
+        {!!razorpayStatus && (
+          <Text style={styles.dateLabel}>Gateway Status: <Text style={styles.dateValue}>{razorpayStatus}</Text></Text>
         )}
       </View>
 
@@ -219,6 +251,14 @@ export default function SubscriptionSettings() {
 
       {/* Subscribe / Renew Button */}
       {!!statusText && <Text style={styles.progressText}>{statusText}</Text>}
+
+      <TouchableOpacity
+        style={[styles.refreshBtn, isRefreshingSubscription && styles.subscribeBtnDisabled]}
+        onPress={() => refreshSubscriptionState({ showProgress: true })}
+        disabled={isRefreshingSubscription || isSubmittingAutopay}
+      >
+        <Text style={styles.refreshText}>{isRefreshingSubscription ? 'Refreshing...' : 'Refresh Subscription'}</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         style={[styles.subscribeBtn, isSubmittingAutopay && styles.subscribeBtnDisabled]}
@@ -272,6 +312,19 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
+  },
+  refreshBtn: {
+    marginTop: 20,
+    borderColor: '#1f6ea7',
+    borderWidth: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  refreshText: {
+    color: '#1f6ea7',
+    fontSize: 15,
+    fontWeight: '600',
   },
   subscribeBtnDisabled: {
     opacity: 0.7,
