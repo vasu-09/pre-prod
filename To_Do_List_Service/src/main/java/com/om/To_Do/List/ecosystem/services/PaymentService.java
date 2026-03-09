@@ -3,7 +3,6 @@ package com.om.To_Do.List.ecosystem.services;
 import com.om.To_Do.List.ecosystem.model.Subscription;
 import com.om.To_Do.List.ecosystem.repository.PaymentRepository;
 import com.om.To_Do.List.ecosystem.repository.SubscriptionRepository;
-import org.springframework.scheduling.annotation.Scheduled;
 import com.razorpay.Entity;
 import com.razorpay.RazorpayClient;
 import com.razorpay.RazorpayException;
@@ -21,14 +20,12 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-
 @Service
 @RequiredArgsConstructor
 public class PaymentService {
-
+    
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    
     @Autowired
     private  PaymentRepository paymentRepo;
     @Autowired
@@ -201,7 +198,8 @@ public class PaymentService {
 
             JSONObject root = new JSONObject(payload);
             String event = root.optString("event", "");
-
+            System.out.println("[RAZORPAY][WEBHOOK] event=" + event + " payload=" + payload);
+            
             JSONObject payloadObj = root.optJSONObject("payload");
             JSONObject subEntity = null;
             JSONObject invEntity = null;
@@ -215,10 +213,26 @@ public class PaymentService {
             }
 
             switch (event) {
+                case "subscription.authenticated":
+                    onSubscriptionAuthenticated(subEntity);
+                    break;
+
                 case "subscription.activated":
                     onSubscriptionActivated(subEntity);
                     break;
 
+                case "subscription.charged":
+                    onSubscriptionCharged(subEntity, invEntity);
+                    break;
+
+                case "subscription.pending":
+                    onSubscriptionPending(subEntity);
+                    break;
+
+                case "subscription.halted":
+                    onSubscriptionHalted(subEntity);
+                    break;
+                    
                 case "subscription.paused":
                 case "subscription.cancelled":
                 case "subscription.completed":
@@ -234,7 +248,7 @@ public class PaymentService {
                     break;
 
                 default:
-                    // ignore others
+                    System.out.println("[RAZORPAY][WEBHOOK] Ignored event=" + event);
             }
 
         } catch (Exception e) {
@@ -242,29 +256,172 @@ public class PaymentService {
         }
     }
 
-    private void onSubscriptionActivated(JSONObject subEntity) {
+    private String blankToNull(String value) {
+        if (value == null) return null;
+        String v = value.trim();
+        return v.isEmpty() || "null".equalsIgnoreCase(v) ? null : v;
+    }
+
+    private LocalDate epochToIstDate(JSONObject obj, String field) {
+        if (obj == null) return null;
+        long epoch = obj.optLong(field, 0L);
+        if (epoch <= 0) return null;
+        return Instant.ofEpochSecond(epoch).atZone(IST).toLocalDate();
+    }
+
+    private Subscription findOrCreateSubscription(String subscriptionId, JSONObject subEntity) {
+        Optional<Subscription> existing = subscriptionRepo.findBySubscriptionId(subscriptionId);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        Subscription sub = new Subscription();
+        sub.setSubscriptionId(subscriptionId);
+
+        if (subEntity != null) {
+            JSONObject notes = subEntity.optJSONObject("notes");
+            if (notes != null) {
+                String appUserId = blankToNull(notes.optString("app_user_id", null));
+                if (appUserId != null) {
+                    sub.setUserId(Long.valueOf(appUserId));
+                }
+            }
+        }
+
+        return sub;
+    }
+
+    private void syncSubscriptionFields(Subscription sub, JSONObject subEntity) {
         if (subEntity == null) return;
-        String subscriptionId = subEntity.optString("id", null);
+
+        String customerId = blankToNull(subEntity.optString("customer_id", null));
+        String tokenId = blankToNull(subEntity.optString("token_id", null));
+
+        if (customerId != null) {
+            sub.setCustomerId(customerId);
+        }
+        if (tokenId != null) {
+            sub.setPaymentToken(tokenEncryptor.encrypt(tokenId));
+        }
+
+        LocalDate currentStart = epochToIstDate(subEntity, "current_start");
+        LocalDate startAt = epochToIstDate(subEntity, "start_at");
+        LocalDate currentEnd = epochToIstDate(subEntity, "current_end");
+
+        if (currentStart != null) {
+            sub.setStartDate(currentStart);
+        } else if (sub.getStartDate() == null && startAt != null) {
+            sub.setStartDate(startAt);
+        }
+
+        if (currentEnd != null) {
+            sub.setExpiryDate(currentEnd);
+        }
+    }
+
+    private void markProvisionallyActive(Subscription sub) {
+        LocalDate today = LocalDate.now(IST);
+        sub.setActive(true);
+
+        if (sub.getStartDate() == null) {
+            sub.setStartDate(today);
+        }
+        if (sub.getExpiryDate() == null) {
+            sub.setExpiryDate(today);
+        }
+    }
+
+    private void resetFailures(Subscription sub) {
+        sub.setFailureCount(0);
+        sub.setLastFailureAt(null);
+    }
+
+    private void onSubscriptionAuthenticated(JSONObject subEntity) {
+        if (subEntity == null) return;
+
+        String subscriptionId = blankToNull(subEntity.optString("id", null));
         if (subscriptionId == null) return;
 
-        subscriptionRepo.findBySubscriptionId(subscriptionId).ifPresent(sub -> {
-            sub.setActive(true);
-            LocalDate todayIST = LocalDate.now(ZoneId.of("Asia/Kolkata"));
-            if (sub.getExpiryDate() == null || sub.getExpiryDate().isBefore(todayIST)) {
-                // Default monthly; change if your plan is different
-                sub.setExpiryDate(todayIST.plusDays(30));
-            }
-            String customerId = subEntity.optString("customer_id", null);
-            String tokenId = subEntity.optString("token_id", null);
-            if (customerId != null) sub.setCustomerId(customerId);
-            if (tokenId != null) sub.setPaymentToken(tokenEncryptor.encrypt(tokenId));
-            subscriptionRepo.save(sub);
-        });
+        Subscription sub = findOrCreateSubscription(subscriptionId, subEntity);
+        syncSubscriptionFields(sub, subEntity);
+        markProvisionallyActive(sub);
+        resetFailures(sub);
+
+        subscriptionRepo.save(sub);
+    }
+
+    private void onSubscriptionActivated(JSONObject subEntity) {
+        if (subEntity == null) return;
+        
+        String subscriptionId = blankToNull(subEntity.optString("id", null));
+        if (subscriptionId == null) return;
+
+        Subscription sub = findOrCreateSubscription(subscriptionId, subEntity);
+        syncSubscriptionFields(sub, subEntity);
+
+        sub.setActive(true);
+        resetFailures(sub);
+
+        LocalDate today = LocalDate.now(IST);
+        if (sub.getStartDate() == null) {
+            sub.setStartDate(today);
+        }
+        if (sub.getExpiryDate() == null) {
+            sub.setExpiryDate(today.plusDays(30));
+        }
+
+        subscriptionRepo.save(sub);
+    }
+
+    private void onSubscriptionCharged(JSONObject subEntity, JSONObject invEntity) {
+        String subscriptionId = null;
+
+        if (subEntity != null) {
+            subscriptionId = blankToNull(subEntity.optString("id", null));
+        }
+        if (subscriptionId == null && invEntity != null) {
+            subscriptionId = blankToNull(invEntity.optString("subscription_id", null));
+        }
+        if (subscriptionId == null) return;
+
+        Subscription sub = findOrCreateSubscription(subscriptionId, subEntity);
+        syncSubscriptionFields(sub, subEntity);
+        sub.setActive(true);
+        resetFailures(sub);
+        subscriptionRepo.save(sub);
+    }
+
+    private void onSubscriptionPending(JSONObject subEntity) {
+        if (subEntity == null) return;
+
+        String subscriptionId = blankToNull(subEntity.optString("id", null));
+        if (subscriptionId == null) return;
+
+        Subscription sub = findOrCreateSubscription(subscriptionId, subEntity);
+        syncSubscriptionFields(sub, subEntity);
+
+        sub.setActive(false);
+        subscriptionRepo.save(sub);
+    }
+
+    private void onSubscriptionHalted(JSONObject subEntity) {
+        if (subEntity == null) return;
+
+        String subscriptionId = blankToNull(subEntity.optString("id", null));
+        if (subscriptionId == null) return;
+
+        Subscription sub = findOrCreateSubscription(subscriptionId, subEntity);
+        syncSubscriptionFields(sub, subEntity);
+
+        sub.setActive(false);
+        sub.setPaymentToken(null);
+
+        subscriptionRepo.save(sub);
     }
 
     private void onSubscriptionInactive(JSONObject subEntity) {
         if (subEntity == null) return;
-        String subscriptionId = subEntity.optString("id", null);
+        String subscriptionId = blankToNull(subEntity.optString("id", null));
         if (subscriptionId == null) return;
 
         subscriptionRepo.findBySubscriptionId(subscriptionId).ifPresent(sub -> {
@@ -276,19 +433,33 @@ public class PaymentService {
 
     private void onInvoicePaid(JSONObject invoiceEntity) {
         if (invoiceEntity == null) return;
-        String subscriptionId = invoiceEntity.optString("subscription_id", null);
+        String subscriptionId = blankToNull(invoiceEntity.optString("subscription_id", null));
         if (subscriptionId == null) return;
 
         subscriptionRepo.findBySubscriptionId(subscriptionId).ifPresent(sub -> {
-            ZoneId IST = ZoneId.of("Asia/Kolkata");
             LocalDate today = LocalDate.now(IST);
-            LocalDate base = (sub.getExpiryDate() != null && sub.getExpiryDate().isAfter(today))
-                    ? sub.getExpiryDate() : today;
+           
             sub.setActive(true);
-            sub.setExpiryDate(base.plusDays(30)); // Default to monthly cycles
-            // reset failure tracking on successful renewal
-            sub.setFailureCount(0);
-            sub.setLastFailureAt(null);
+            resetFailures(sub);
+
+            LocalDate periodEnd = epochToIstDate(invoiceEntity, "period_end");
+            LocalDate periodStart = epochToIstDate(invoiceEntity, "period_start");
+
+            if (periodStart != null) {
+                sub.setStartDate(periodStart);
+            } else if (sub.getStartDate() == null) {
+                sub.setStartDate(today);
+            }
+
+            if (periodEnd != null) {
+                sub.setExpiryDate(periodEnd);
+            } else {
+                LocalDate base = (sub.getExpiryDate() != null && sub.getExpiryDate().isAfter(today))
+                        ? sub.getExpiryDate()
+                        : today;
+                sub.setExpiryDate(base.plusDays(30));
+            }
+            
             subscriptionRepo.save(sub);
         });
     }
@@ -299,7 +470,6 @@ public class PaymentService {
         if (subscriptionId == null) return;
 
         subscriptionRepo.findBySubscriptionId(subscriptionId).ifPresent(sub -> {
-            ZoneId IST = ZoneId.of("Asia/Kolkata");
             LocalDateTime now = LocalDateTime.now(IST);
             int failures = sub.getFailureCount() == null ? 0 : sub.getFailureCount();
             failures++;
