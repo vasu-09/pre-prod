@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -22,35 +22,64 @@ export default function SubscriptionSettings() {
   const [isSubscribed] = useState(true);
   const [autopayEnabled, setAutopayEnabled] = useState(false);
   const [isSubmittingAutopay, setIsSubmittingAutopay] = useState(false);
+  const [statusText, setStatusText] = useState('');
   const startDate = '2025-07-01';
   const expiryDate = '2025-08-01';
 
-  const checkSubscriptionStatus = async (userId) => {
-    const maxAttempts = 5;
-    const intervalMs = 2500;
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const getSubscriptionStatus = async () => {
+    const { data } = await apiClient.get('/api/v1/payments/subscription/status');
+    return data;
+  };
+
+  const reconcileSubscription = async () => {
+    const { data } = await apiClient.post('/api/v1/payments/subscriptions/reconcile');
+    return data;
+  };
+
+  const reconcileWithRetry = async (attempts = 6, delayMs = 2500) => {
+    let lastResponse = null;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
-        const { data } = await apiClient.get(`/api/v1/payments/subscription/${userId}/status`);
-        if (data?.isActive) {
-          setAutopayEnabled(true);
-          Alert.alert('AutoPay enabled', 'Your subscription is active now.');
-          return;
+        const data = await reconcileSubscription();
+        lastResponse = data;
+
+        if (data?.isActive === true) {
+          return data;
+        }
+     if (
+          data?.razorpayStatus === 'cancelled' ||
+          data?.razorpayStatus === 'halted' ||
+          data?.razorpayStatus === 'expired'
+        ) {
+          return data;
         }
       } catch (error) {
-        if (attempt === maxAttempts - 1) {
-          throw error;
-        }
+        lastResponse = { error };
       }
 
-      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      if (attempt < attempts - 1) {
+        await sleep(delayMs);
+      }
     }
 
-    Alert.alert(
-      'Authorization pending',
-      'We are still waiting for payment confirmation. Please check again in a moment.'
-    );
+    return lastResponse;
   };
+
+  useEffect(() => {
+    const hydrateAutopayStatus = async () => {
+      try {
+        const data = await getSubscriptionStatus();
+        setAutopayEnabled(Boolean(data?.isActive));
+      } catch {
+        // Best-effort passive refresh.
+      }
+    };
+
+    hydrateAutopayStatus();
+  }, []);
 
   const createAutopaySubscription = async () => {
     if (isSubmittingAutopay) {
@@ -61,18 +90,15 @@ export default function SubscriptionSettings() {
       setIsSubmittingAutopay(true);
 
       const session = await getStoredSession();
-      const userId = session?.userId ? Number(session.userId) : null;
-
-      if (!userId) {
-        Alert.alert('Unable to continue', 'Please sign in again and retry.');
-        return;
-      }
+      const email = session?.email ?? null;
+      const contact = session?.username ?? null;
 
       const payload = {
-        userId,
-        contact: session?.username ?? null,
+        email,
+        contact,
       };
 
+      setStatusText('Opening payment page...');
       const { data } = await apiClient.post('/api/v1/payments/subscriptions', payload);
       const shortUrl = data?.shortUrl ?? data?.short_url;
 
@@ -85,7 +111,28 @@ export default function SubscriptionSettings() {
         enableBarCollapsing: true,
       });
 
-      await checkSubscriptionStatus(userId);
+      setStatusText('Checking subscription...');
+      const finalState = await reconcileWithRetry(6, 2500);
+
+      if (finalState?.isActive === true) {
+        setAutopayEnabled(true);
+        Alert.alert('Success', 'Your subscription is active now.');
+        return;
+      }
+
+      const razorpayStatus = finalState?.razorpayStatus;
+      if (
+        razorpayStatus === 'pending' ||
+        razorpayStatus === 'created' ||
+        razorpayStatus === 'authenticated'
+      ) {
+        setAutopayEnabled(false);
+        Alert.alert('Pending', 'Authorization is still being confirmed. Please refresh after a moment.');
+        return;
+      }
+
+      setAutopayEnabled(false);
+      Alert.alert('Not active', 'Subscription was not confirmed.');
     } catch (error) {
       const message =
         error?.response?.data?.message ||
@@ -96,6 +143,7 @@ export default function SubscriptionSettings() {
       setAutopayEnabled(false);
     } finally {
       setIsSubmittingAutopay(false);
+      setStatusText('');
     }
   };
 
@@ -170,7 +218,13 @@ export default function SubscriptionSettings() {
       </TouchableOpacity>
 
       {/* Subscribe / Renew Button */}
-      <TouchableOpacity style={styles.subscribeBtn} onPress={handleSubscribe}>
+      {!!statusText && <Text style={styles.progressText}>{statusText}</Text>}
+
+      <TouchableOpacity
+        style={[styles.subscribeBtn, isSubmittingAutopay && styles.subscribeBtnDisabled]}
+        onPress={handleSubscribe}
+        disabled={isSubmittingAutopay}
+      >
         <Text style={styles.subscribeText}>
           {isSubscribed ? 'Renew Subscription' : 'Subscribe Now'}
         </Text>
@@ -218,6 +272,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
+  },
+  subscribeBtnDisabled: {
+    opacity: 0.7,
+  },
+  progressText: {
+    marginTop: 20,
+    color: '#1f6ea7',
+    fontSize: 14,
+    fontWeight: '500',
   },
   subscribeText: {
     color: '#fff',
