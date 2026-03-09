@@ -65,7 +65,7 @@ let localContactCounter = 0;
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 const DB_NAME = 'moc-app.db';
-const CURRENT_SCHEMA_VERSION = 6;
+const CURRENT_SCHEMA_VERSION = 7;
 
 type MetaRow = {
   value: string;
@@ -112,6 +112,7 @@ type UserProfileRow = {
   display_name: string | null;
   email: string | null;
   avatar_url: string | null;
+  avatar_local_uri: string | null;
   phone_number: string | null;
   updated_at: string | null;
 };
@@ -376,10 +377,21 @@ const migrateToV6 = async (db: SQLite.SQLiteDatabase) => {
       display_name TEXT,
       email TEXT,
       avatar_url TEXT,
+      avatar_local_uri TEXT,
       phone_number TEXT,
       updated_at TEXT
     );
   `);
+};
+
+const migrateToV7 = async (db: SQLite.SQLiteDatabase) => {
+  try {
+    await db.execAsync('ALTER TABLE user_profile ADD COLUMN avatar_local_uri TEXT;');
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping avatar_local_uri migration', error);
+    }
+  }
 };
 
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {
@@ -414,6 +426,10 @@ const runMigrations = async (db: SQLite.SQLiteDatabase) => {
     if (version < 6) {
       await migrateToV6(tx);
       version = 6;
+    }
+    if (version < 7) {
+      await migrateToV7(tx);
+      version = 7;
     }
     await setSchemaVersion(tx, version);
   });
@@ -798,6 +814,7 @@ export type StoredUserProfileInput = {
   displayName?: string | null;
   email?: string | null;
   avatarUrl?: string | null;
+  avatarLocalUri?: string | null;
   phoneNumber?: string | null;
   updatedAt?: string | null;
 };
@@ -1177,12 +1194,13 @@ export const upsertUserProfileInDb = async (profile: StoredUserProfileInput): Pr
   runWithWriteLock(async () => {
     const db = await getDatabase();
     await db.runAsync(
-      `INSERT INTO user_profile (user_id, display_name, email, avatar_url, phone_number, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO user_profile (user_id, display_name, email, avatar_url, avatar_local_uri, phone_number, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          display_name = COALESCE(excluded.display_name, user_profile.display_name),
          email = COALESCE(excluded.email, user_profile.email),
          avatar_url = COALESCE(excluded.avatar_url, user_profile.avatar_url),
+         avatar_local_uri = COALESCE(excluded.avatar_local_uri, user_profile.avatar_local_uri),
          phone_number = COALESCE(excluded.phone_number, user_profile.phone_number),
          updated_at = COALESCE(excluded.updated_at, user_profile.updated_at)`,
       [
@@ -1190,6 +1208,7 @@ export const upsertUserProfileInDb = async (profile: StoredUserProfileInput): Pr
         profile.displayName ?? null,
         profile.email ?? null,
         profile.avatarUrl ?? null,
+        profile.avatarLocalUri ?? null,
         profile.phoneNumber ?? null,
         profile.updatedAt ?? new Date().toISOString(),
       ],
@@ -1208,6 +1227,7 @@ export const getUserProfileFromDb = async (userId: number): Promise<StoredUserPr
     displayName: row.display_name,
     email: row.email,
     avatarUrl: row.avatar_url,
+    avatarLocalUri: row.avatar_local_uri,
     phoneNumber: row.phone_number,
     updatedAt: row.updated_at,
   };

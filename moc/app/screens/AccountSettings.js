@@ -67,7 +67,7 @@ export default function AccountSettings() {
       if (isActiveRef.current && cachedProfile) {
         setName(cachedProfile.displayName ?? '');
         setEmail(cachedProfile.email ?? '');
-        setPhotoUri(cachedProfile.avatarUrl || '');
+        setPhotoUri(cachedProfile.avatarLocalUri || cachedProfile.avatarUrl || '');
       }
 
       const { data } = await apiClient.get(`/user/${userIdValue}`);
@@ -81,11 +81,14 @@ export default function AccountSettings() {
         ? data.avatarUrl
         : '';
 
-        await upsertUserProfileInDb({
+        const existingLocalAvatar = cachedProfile?.avatarLocalUri ?? null;
+      const shouldUpdateLocalAvatar = Boolean(nextPhoto) && nextPhoto !== cachedProfile?.avatarUrl;
+
+      await upsertUserProfileInDb({
         userId: userIdValue,
         displayName: nextName,
         email: nextEmail,
-        avatarUrl: nextPhoto,
+        avatarLocalUri: shouldUpdateLocalAvatar ? nextPhoto : existingLocalAvatar,
         phoneNumber: nextPhone,
         updatedAt: new Date().toISOString(),
       });

@@ -1,6 +1,7 @@
 import apiClient from './apiClient';
 import { getStoredSession } from './authStorage';
 import { upsertUserProfileInDb } from './database';
+import { compressImageForChatStandard } from './imageCompression';
 
 type AvatarIntentResponse = {
   key?: string;
@@ -63,8 +64,10 @@ const uploadToSignedUrl = async (putUrl: string, blob: Blob, contentType: string
 };
 
 export const uploadAvatar = async (uri: string, mimeType?: string | null): Promise<string> => {
-  const fallbackContentType = inferContentType(uri, mimeType ?? undefined);
-  const uploadPayload = await getUploadPayload(uri, fallbackContentType);
+  const compressed = await compressImageForChatStandard({ uri });
+  const uploadUri = compressed?.uri || uri;
+  const fallbackContentType = inferContentType(uploadUri, mimeType ?? undefined);
+  const uploadPayload = await getUploadPayload(uploadUri, fallbackContentType);
 
   const intentResponse = await apiClient.post<AvatarIntentResponse>('/user/me/avatar/intent', {
     contentType: uploadPayload.contentType,
@@ -100,11 +103,12 @@ export const uploadAvatar = async (uri: string, mimeType?: string | null): Promi
   }
 
   const { data } = await apiClient.get(`/user/${userId}`);
-  const avatarUrl = typeof data?.avatarUrl === 'string' && data.avatarUrl.trim() ? data.avatarUrl.trim() : uri;
+  const avatarUrl = typeof data?.avatarUrl === 'string' && data.avatarUrl.trim() ? data.avatarUrl.trim() : uploadUri;
 
   await upsertUserProfileInDb({
     userId,
     avatarUrl,
+    avatarLocalUri: uploadUri,
     displayName: typeof data?.displayName === 'string' ? data.displayName : null,
     email: typeof data?.email === 'string' ? data.email : null,
     phoneNumber: session?.username ?? null,
