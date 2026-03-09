@@ -23,8 +23,9 @@ public class PaymentController {
      * Body: { "userId": 123, "planId": "plan_XXXX", "email": "u@x.com", "contact": "91xxxxxxxxxx" }
      */
     @PostMapping("/subscriptions")
-    public ResponseEntity<?> createSubscription(@RequestBody Map<String, Object> body) {
-        Long userId = Long.valueOf(body.get("userId").toString());
+    public ResponseEntity<?> createSubscription(@AuthenticationPrincipal Jwt jwt,
+                                                @RequestBody Map<String, Object> body) {
+        Long userId = Long.valueOf(jwt.getSubject());
         String email = body.get("email") == null ? null : body.get("email").toString();
         String contact = body.get("contact") == null ? null : body.get("contact").toString();
 
@@ -55,8 +56,9 @@ public class PaymentController {
     /**
      * Local subscription status by userId.
      */
-    @GetMapping("/subscription/{userId}/status")
-    public ResponseEntity<?> status(@PathVariable Long userId) {
+    @GetMapping("/subscription/status")
+    public ResponseEntity<?> status(@AuthenticationPrincipal Jwt jwt) {
+        Long userId = Long.valueOf(jwt.getSubject());
         boolean active = paymentService.isSubscriptionActive(userId);
         return ResponseEntity.ok(Map.of("userId", userId, "isActive", active));
     }

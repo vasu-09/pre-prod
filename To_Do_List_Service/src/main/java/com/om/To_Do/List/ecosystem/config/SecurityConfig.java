@@ -29,7 +29,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                          .requestMatchers(
                                 "/.well-known/jwks.json",
-                                "/actuator/health", "/actuator/health/**", "/actuator/info", "/"
+                                "/actuator/health", "/actuator/health/**", "/actuator/info", "/",
+                                "/api/v1/payments/webhook"
                         ).permitAll()
                         .anyRequest().authenticated()
                 )

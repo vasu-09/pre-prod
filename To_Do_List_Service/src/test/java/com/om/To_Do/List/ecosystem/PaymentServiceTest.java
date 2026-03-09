@@ -214,4 +214,22 @@ public class PaymentServiceTest {
         Mockito.verify(subscriptionRepo, Mockito.never()).save(any());
     }
 
+    @Test
+    void createSubscriptionReusesExistingProvisioningSubscription() throws Exception {
+        Subscription sub = new Subscription();
+        sub.setUserId(15L);
+        sub.setSubscriptionId("sub_existing");
+
+        when(subscriptionRepo.findByUserId(15L)).thenReturn(Optional.of(sub));
+
+        Entity existing = Mockito.mock(Entity.class);
+        when(existing.toString()).thenReturn("{\"id\":\"sub_existing\",\"status\":\"active\",\"short_url\":\"https://rzp.io/i/existing\"}");
+        when(razorpayClient.subscriptions.fetch(eq("sub_existing"))).thenReturn(existing);
+
+        var resp = paymentService.createSubscription(15L, "user@example.com", "9999999999");
+
+        assertEquals("sub_existing", resp.get("subscriptionId"));
+        assertEquals(true, resp.get("reused"));
+        Mockito.verify(razorpayClient.subscriptions, Mockito.never()).create(any());
+    }
 }

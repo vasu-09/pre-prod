@@ -90,6 +90,27 @@ public class PaymentService {
     @Transactional
     public Map<String, Object> createSubscription(Long userId, String email, String contact) {
         try {
+            Optional<Subscription> existing = subscriptionRepo.findByUserId(userId);
+            if (existing.isPresent()) {
+                Subscription localSub = existing.get();
+                String existingSubscriptionId = blankToNull(localSub.getSubscriptionId());
+                if (existingSubscriptionId != null) {
+                    Entity fetchedExisting = client().subscriptions.fetch(existingSubscriptionId);
+                    JSONObject existingEntity = new JSONObject(fetchedExisting.toString());
+                    String existingStatus = blankToNull(existingEntity.optString("status", null));
+
+                    if (isProvisioningOrActiveStatus(existingStatus)) {
+                        Map<String, Object> existingResp = new HashMap<>();
+                        existingResp.put("subscriptionId", existingSubscriptionId);
+                        existingResp.put("shortUrl", existingEntity.optString("short_url", null));
+                        existingResp.put("status", existingStatus);
+                        existingResp.put("reused", true);
+                        existingResp.put("message", "Existing subscription already present for user.");
+                        return existingResp;
+                    }
+                }
+            }
+            
             String planId = defaultPlanId;
             // 1) Fetch plan and validate amount (Razorpay amounts are in paise)
             Entity plan = client().plans.fetch(planId);
@@ -159,6 +180,14 @@ public class PaymentService {
             throw new RuntimeException("Failed to create subscription: " + e.getMessage(), e);
         }
 
+    }
+
+    private boolean isProvisioningOrActiveStatus(String status) {
+        return "created".equals(status)
+                || "authenticated".equals(status)
+                || "active".equals(status)
+                || "pending".equals(status)
+                || "charged".equals(status);
     }
 
     /**
