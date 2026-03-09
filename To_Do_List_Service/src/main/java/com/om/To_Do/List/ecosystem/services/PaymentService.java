@@ -518,4 +518,70 @@ public class PaymentService {
                 })
                 .orElse(false);
     }
+
+    @Transactional
+    public Map<String, Object> reconcileSubscription(Long userId) {
+        Subscription localSub = subscriptionRepo.findByUserId(userId)
+                .orElseThrow(() -> new IllegalArgumentException("No local subscription found for userId=" + userId));
+
+        String subscriptionId = blankToNull(localSub.getSubscriptionId());
+        if (subscriptionId == null) {
+            throw new IllegalStateException("Local subscription is missing Razorpay subscriptionId for userId=" + userId);
+        }
+
+        try {
+            Entity fetched = client().subscriptions.fetch(subscriptionId);
+            JSONObject subEntity = new JSONObject(fetched.toString());
+            String razorpayStatus = blankToNull(subEntity.optString("status", null));
+
+            syncSubscriptionFields(localSub, subEntity);
+            applySubscriptionStatus(localSub, razorpayStatus);
+            subscriptionRepo.save(localSub);
+
+            boolean active = isSubscriptionActive(userId);
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("userId", userId);
+            resp.put("subscriptionId", subscriptionId);
+            resp.put("razorpayStatus", razorpayStatus);
+            resp.put("isActive", active);
+            resp.put("startDate", localSub.getStartDate());
+            resp.put("expiryDate", localSub.getExpiryDate());
+            return resp;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to reconcile subscription: " + e.getMessage(), e);
+        }
+    }
+
+    private void applySubscriptionStatus(Subscription sub, String razorpayStatus) {
+        if (razorpayStatus == null) {
+            return;
+        }
+
+        switch (razorpayStatus) {
+            case "active":
+            case "authenticated":
+            case "charged":
+                sub.setActive(true);
+                if (sub.getStartDate() == null) {
+                    sub.setStartDate(LocalDate.now(IST));
+                }
+                if (sub.getExpiryDate() == null) {
+                    sub.setExpiryDate(LocalDate.now(IST));
+                }
+                resetFailures(sub);
+                break;
+            case "pending":
+                sub.setActive(false);
+                break;
+            case "halted":
+            case "cancelled":
+            case "completed":
+            case "paused":
+                sub.setActive(false);
+                sub.setPaymentToken(null);
+                break;
+            default:
+                // Keep local state unchanged for unknown statuses.
+        }
+    }
 }

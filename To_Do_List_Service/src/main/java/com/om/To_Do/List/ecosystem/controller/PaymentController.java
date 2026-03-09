@@ -41,6 +41,15 @@ public class PaymentController {
     }
 
     /**
+     * Reconcile local subscription with Razorpay live status.
+     */
+    @PostMapping("/subscriptions/{userId}/reconcile")
+    public ResponseEntity<?> reconcileSubscription(@PathVariable Long userId) {
+        var resp = paymentService.reconcileSubscription(userId);
+        return ResponseEntity.ok(resp);
+    }
+
+    /**
      * Local subscription status by userId.
      */
     @GetMapping("/subscription/{userId}/status")

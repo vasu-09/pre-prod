@@ -4,6 +4,9 @@ import com.om.To_Do.List.ecosystem.model.Subscription;
 import com.om.To_Do.List.ecosystem.repository.PaymentRepository;
 import com.om.To_Do.List.ecosystem.repository.SubscriptionRepository;
 import com.om.To_Do.List.ecosystem.services.PaymentService;
+import com.om.To_Do.List.ecosystem.services.TokenEncryptor;
+import com.razorpay.Entity;
+import com.razorpay.RazorpayClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -17,6 +20,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 /**
@@ -26,6 +30,7 @@ public class PaymentServiceTest {
 
     private PaymentService paymentService;
     private SubscriptionRepository subscriptionRepo;
+    private RazorpayClient razorpayClient;
 
     @BeforeEach
     void setUp() {
@@ -34,6 +39,11 @@ public class PaymentServiceTest {
         ReflectionTestUtils.setField(paymentService, "subscriptionRepo", subscriptionRepo);
         ReflectionTestUtils.setField(paymentService, "paymentRepo", Mockito.mock(PaymentRepository.class));
         ReflectionTestUtils.setField(paymentService, "webhookSecret", "secret");
+        TokenEncryptor tokenEncryptor = Mockito.mock(TokenEncryptor.class);
+        when(tokenEncryptor.encrypt(any())).thenAnswer(inv -> inv.getArgument(0));
+        ReflectionTestUtils.setField(paymentService, "tokenEncryptor", tokenEncryptor);
+        razorpayClient = Mockito.mock(RazorpayClient.class, Mockito.RETURNS_DEEP_STUBS);
+        ReflectionTestUtils.setField(paymentService, "client", razorpayClient);
     }
 
     private String sign(String payload) {
@@ -121,4 +131,49 @@ public class PaymentServiceTest {
 
         assertFalse(paymentService.isSubscriptionActive(1L));
     }
+
+    @Test
+    void reconcileSubscriptionMapsActiveStatus() throws Exception {
+        Subscription sub = new Subscription();
+        sub.setUserId(7L);
+        sub.setSubscriptionId("sub_live");
+        sub.setActive(false);
+
+        when(subscriptionRepo.findByUserId(7L)).thenReturn(Optional.of(sub));
+        when(subscriptionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Entity fetched = Mockito.mock(Entity.class);
+        when(fetched.toString()).thenReturn("{\"id\":\"sub_live\",\"status\":\"active\"}");
+        when(razorpayClient.subscriptions.fetch(eq("sub_live"))).thenReturn(fetched);
+
+        var resp = paymentService.reconcileSubscription(7L);
+
+        assertEquals("active", resp.get("razorpayStatus"));
+        assertEquals(true, resp.get("isActive"));
+        assertTrue(Boolean.TRUE.equals(sub.getActive()));
+    }
+
+    @Test
+    void reconcileSubscriptionMapsHaltedStatusAndClearsToken() throws Exception {
+        Subscription sub = new Subscription();
+        sub.setUserId(9L);
+        sub.setSubscriptionId("sub_halt");
+        sub.setActive(true);
+        sub.setPaymentToken("encrypted-token");
+
+        when(subscriptionRepo.findByUserId(9L)).thenReturn(Optional.of(sub));
+        when(subscriptionRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Entity fetched = Mockito.mock(Entity.class);
+        when(fetched.toString()).thenReturn("{\"id\":\"sub_halt\",\"status\":\"halted\"}");
+        when(razorpayClient.subscriptions.fetch(eq("sub_halt"))).thenReturn(fetched);
+
+        var resp = paymentService.reconcileSubscription(9L);
+
+        assertEquals("halted", resp.get("razorpayStatus"));
+        assertEquals(false, resp.get("isActive"));
+        assertFalse(Boolean.TRUE.equals(sub.getActive()));
+        assertNull(sub.getPaymentToken());
+    }
+
 }
