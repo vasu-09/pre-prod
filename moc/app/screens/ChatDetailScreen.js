@@ -2308,8 +2308,8 @@ const makeReplyPayload = useCallback(
   };
 
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
-  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
-  const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT + insets.top : 0;
+  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
+  const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
 
   return (
     <SafeAreaView style={styles.safeArea} >
@@ -2488,6 +2488,7 @@ const makeReplyPayload = useCallback(
             style={styles.chatBody}
             behavior={keyboardBehavior}
             keyboardVerticalOffset={keyboardVerticalOffset}
+            enabled={Platform.OS === 'ios'}
           >
           <FlatList
             ref={flatListRef}
@@ -2842,7 +2843,7 @@ const makeReplyPayload = useCallback(
           style={[
             styles.bottomBar,
             {
-              paddingBottom: Math.max(insets.bottom, MARGIN),
+              paddingBottom: insets.bottom > 0 ? insets.bottom : MARGIN,
             },
          ]}
         >
@@ -3731,7 +3732,9 @@ const styles = StyleSheet.create({
   bottomBar: {
     paddingHorizontal: MARGIN,
     paddingTop: MARGIN,
+    paddingBottom: MARGIN,
     backgroundColor: '#eef5fa',
+    flexShrink: 0,
   },
   messageBarRow: {
     flexDirection: 'row',
