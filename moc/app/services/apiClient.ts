@@ -6,6 +6,7 @@ import {
   clearSession,
   getAccessToken,
   getRefreshToken,
+  isAccessTokenExpired,
   updateSessionTokens,
 } from './authStorage';
 
@@ -521,6 +522,23 @@ const refreshAccessToken = async (): Promise<string | null> => {
 
   return refreshPromise;
 };
+
+export const ensureValidAccessToken = async (): Promise<string | null> => {
+  const currentAccessToken = await getAccessToken();
+  const refreshToken = await getRefreshToken();
+
+  if (!refreshToken) {
+    return null;
+  }
+
+  if (currentAccessToken && !isAccessTokenExpired(currentAccessToken)) {
+    return currentAccessToken;
+  }
+
+  return refreshAccessToken();
+};
+
+
 
 apiClient.interceptors.request.use((config) => {
   console.log('[apiClient] OUT', {
