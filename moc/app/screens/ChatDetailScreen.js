@@ -13,6 +13,7 @@ import {
   AppState,
   FlatList,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   PanResponder,
@@ -2483,14 +2484,26 @@ const makeReplyPayload = useCallback(
             </View>
           ) : null}
           
-          
+          <KeyboardAvoidingView
+            style={styles.chatBody}
+            behavior={keyboardBehavior}
+            keyboardVerticalOffset={keyboardVerticalOffset}
+          >
           <FlatList
             ref={flatListRef}
             data={chatItems}
             keyExtractor={i => i.id}
+            style={styles.messagesList}
+            keyboardShouldPersistTaps="handled"
             contentContainerStyle={{
               padding: 12,
-              paddingBottom: MESSAGE_BAR_HEIGHT + bottomOffset + replyBarHeight,
+              paddingBottom:
+                MESSAGE_BAR_HEIGHT +
+                MIC_SIZE +
+                bottomOffset +
+                replyBarHeight +
+                12,
+              flexGrow: 1,
             }}
             ListEmptyComponent={
               isHistoryLoading ? (
@@ -2825,19 +2838,11 @@ const makeReplyPayload = useCallback(
       ): null}
 
       {/* Input bar */}
-      <ComposerWrapper
-          {...(Platform.OS === 'ios'
-            ? {
-                behavior: 'padding',
-                keyboardVerticalOffset: BAR_HEIGHT + insets.top,
-              }
-            : {})}
-        >
         <View
           style={[
             styles.bottomBar,
             {
-              paddingBottom: MARGIN,
+              paddingBottom: Math.max(insets.bottom, MARGIN),
             },
          ]}
         >
@@ -2957,7 +2962,7 @@ const makeReplyPayload = useCallback(
             </TouchableOpacity>
           </View>
         </View>
-      </ComposerWrapper>
+      </KeyboardAvoidingView>
        </>
       ) : (
         <View style={styles.missingRoomWrapper}>
@@ -3716,10 +3721,17 @@ const styles = StyleSheet.create({
     paddingLeft: 40,
     paddingVertical: 6,
   },
+  chatBody: {
+    flex: 1,
+  },
+  messagesList: {
+    flex: 1,
+  },
 
   bottomBar: {
     paddingHorizontal: MARGIN,
     paddingTop: MARGIN,
+    backgroundColor: '#eef5fa',
   },
   messageBarRow: {
     flexDirection: 'row',
