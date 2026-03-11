@@ -32,7 +32,7 @@ export default function RootLayout() {
             <Stack.Screen name="screens/NewListScreen" options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="screens/ViewListScreen" options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="screens/PreviewScreen" options={{ presentation: 'fullScreenModal' }} />
-            <Stack.Screen name="screens/MocScreen" options={{ presentation: 'fullScreenModal' }} />
+            <Stack.Screen name="screens/MocScreen" options={{ headerShown: false }} />
             <Stack.Screen name="screens/CompleteProfileScreen" options={{ headerShown: false }} />
             <Stack.Screen name="screens/AccountSettings" options={{ headerShown: false }} />
             <Stack.Screen name="screens/EditNameScreen" options={{ headerShown: false }} />
