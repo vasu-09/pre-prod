@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { getStoredSession } from '../services/authStorage';
 
 // Request CALL_PHONE explicitly (simpler & safer)
 const ANDROID_PHONE_PERMISSION = PermissionsAndroid?.PERMISSIONS?.CALL_PHONE ?? null;
@@ -25,10 +26,23 @@ const PermissionsScreen = () => {
 
   const [error, setError] = useState('');
 
-  const handleNavigation = useCallback(() => {
+  const handleNavigation = useCallback(async () => {
     const contactsGranted = contactsStatus === 'granted';
-    // phone is nice to have but don't hard-block login on it
-     if (contactsGranted) router.replace('/screens/LoginScreen');
+    if (!contactsGranted) return;
+
+    try {
+      const { accessToken, refreshToken } = await getStoredSession();
+
+      if (accessToken && refreshToken) {
+        router.replace('/screens/MocScreen');
+        return;
+      }
+
+      router.replace('/screens/LoginScreen');
+    } catch (err) {
+      console.warn('Failed to restore session in PermissionsScreen', err);
+      router.replace('/screens/LoginScreen');
+    }
   }, [contactsStatus, router]);
 
   // Initial permission check on mount
@@ -50,7 +64,7 @@ const PermissionsScreen = () => {
 
   // Navigate whenever both are effectively granted
   useEffect(() => {
-    handleNavigation();
+     void handleNavigation();
   }, [handleNavigation]);
 
   const requestPermissions = async () => {
@@ -88,7 +102,7 @@ const PermissionsScreen = () => {
       // 3) Decide navigation
       if (contactsGranted) {
         // Contacts are mandatory, phone is optional for now
-        router.replace('/screens/LoginScreen');
+        await handleNavigation();
       } else {
         setError(
           "You’ll need to allow Contacts access to continue. You can also enable it later in your device settings."
