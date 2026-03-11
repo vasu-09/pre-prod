@@ -13,7 +13,6 @@ import {
   AppState,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Linking,
   Modal,
   PanResponder,
@@ -24,7 +23,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -68,6 +67,14 @@ const dayKeyFromIso = iso => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'unknown';
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const getAvatarUri = (value) => {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw !== 'string') return null;
+
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
 };
 
 const formatDayLabel = iso => {
@@ -913,8 +920,8 @@ export default function ChatDetailScreen() {
   const subtitleText = typingUsers.length
     ? 'typing…'
     : 'Messages are end-to-end encrypted';
-  const avatarUri = params?.image && String(params.image).trim() ? String(params.image) : null;
-  const avatarSource = avatarUri ? { uri: avatarUri } : null;
+  const avatarUri = getAvatarUri(params?.image);
+const avatarSource = avatarUri ? { uri: avatarUri } : null;
   const isRoomReady = Boolean(roomId && (roomKey || roomId));
 
   const recordingRef = useRef(null);
@@ -2300,9 +2307,11 @@ const makeReplyPayload = useCallback(
   };
 
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
+  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
+  const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT + insets.top : 0;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} >
       <StatusBar backgroundColor="#1f6ea7" barStyle="light-content" />
 
       {/* Header */}
@@ -2473,6 +2482,8 @@ const makeReplyPayload = useCallback(
               <Text style={styles.historyErrorText}>{historyError}</Text>
             </View>
           ) : null}
+          
+          
           <FlatList
             ref={flatListRef}
             data={chatItems}
@@ -2814,16 +2825,19 @@ const makeReplyPayload = useCallback(
       ): null}
 
       {/* Input bar */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={BAR_HEIGHT + insets.top}
-        style={{}}
-      >
+      <ComposerWrapper
+          {...(Platform.OS === 'ios'
+            ? {
+                behavior: 'padding',
+                keyboardVerticalOffset: BAR_HEIGHT + insets.top,
+              }
+            : {})}
+        >
         <View
           style={[
             styles.bottomBar,
             {
-              paddingBottom: insets.bottom + MARGIN,
+              paddingBottom: MARGIN,
             },
          ]}
         >
@@ -2943,7 +2957,7 @@ const makeReplyPayload = useCallback(
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </ComposerWrapper>
        </>
       ) : (
         <View style={styles.missingRoomWrapper}>
@@ -3734,7 +3748,14 @@ const styles = StyleSheet.create({
   },
 
   iconButton: { padding: 6, marginHorizontal: 2 },
-  textInput: { flex: 1, fontSize: 16, marginHorizontal: 6, paddingVertical: 0 },
+  textInput: {
+    flex: 1,
+    fontSize: 16,
+    marginHorizontal: 6,
+    paddingVertical: 0,
+    minHeight: 24,
+    textAlignVertical: 'center',
+  },
 
   audioPreview: {
     flexDirection: 'row',
