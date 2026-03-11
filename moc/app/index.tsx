@@ -3,7 +3,8 @@ import * as Contacts from 'expo-contacts';
 import { Redirect, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
-import { getStoredSession } from './services/authStorage';
+import { ensureValidAccessToken } from './services/apiClient';
+import { getRefreshToken } from './services/authStorage';
 
 const PERMISSIONS_ROUTE = '/screens/PermissionsScreen' as Href;
 const LOGIN_ROUTE = '/screens/LoginScreen' as Href;
@@ -26,11 +27,21 @@ export default function Index() {
           return;
         }
 
-        const { accessToken, refreshToken } = await getStoredSession();
+             const refreshToken = await getRefreshToken();
 
         if (!isMounted) return;
 
-        if (accessToken && refreshToken) {
+
+           if (!refreshToken) {
+          setTargetRoute(LOGIN_ROUTE);
+          return;
+        }
+
+        const validAccessToken = await ensureValidAccessToken();
+
+        if (!isMounted) return;
+
+        if (validAccessToken) {
           setTargetRoute(HOME_ROUTE);
           return;
         }
