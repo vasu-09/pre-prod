@@ -259,6 +259,40 @@ export const getStoredUserId = async () => getItem(USER_ID_KEY);
 
 export const getStoredUsername = async () => getItem(USERNAME_KEY);
 
+export const getJwtExpiryMs = (token: NullableString): number | null => {
+  const claims = decodeJwtPayload(token ?? null);
+  const exp = claims?.['exp'];
+
+  if (typeof exp === 'number' && Number.isFinite(exp)) {
+    return exp * 1000;
+  }
+
+  if (typeof exp === 'string') {
+    const parsed = Number(exp);
+    if (Number.isFinite(parsed)) {
+      return parsed * 1000;
+    }
+  }
+
+  return null;
+};
+
+export const isAccessTokenExpired = (
+  token: NullableString,
+  skewMs = 30_000,
+): boolean => {
+  if (!token) {
+    return true;
+  }
+
+  const expiryMs = getJwtExpiryMs(token);
+  if (!expiryMs) {
+    return false;
+  }
+
+  return Date.now() >= expiryMs - skewMs;
+};
+
 export const clearSession = async () => {
   await Promise.all([
     storage.removeItem(ACCESS_TOKEN_KEY),
