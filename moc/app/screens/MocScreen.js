@@ -56,6 +56,14 @@ const MocScreen = () => {
     refresh: refreshMatchedSuggestions,
   } = useContactSync({ selector: 'matched', refreshOnMount: true, staleMs: 5 * 60 * 1000 });
 
+const getAvatarUri = useCallback((contact) => {
+  if (typeof contact?.imageUri !== 'string') {
+    return null;
+  }
+
+  const trimmed = contact.imageUri.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}, []);
 
   useEffect(() => {
     console.log("[MOC] rooms changed, count =", rooms.length, rooms);
@@ -76,16 +84,18 @@ const MocScreen = () => {
   }, []);
 
   const renderAvatar = useCallback((contact) => {
-    if (contact?.imageUri) {
-      return <Image source={{ uri: contact.imageUri }} style={styles.contactAvatar} />;
-    }
+  const avatarUri = getAvatarUri(contact);
 
-    return (
-      <View style={[styles.contactAvatar, styles.avatarPlaceholder]}>
-        <Icon name="person" size={24} color="#888" />
-      </View>
-    );
-  }, []);
+  if (avatarUri) {
+    return <Image source={{ uri: avatarUri }} style={styles.contactAvatar} />;
+  }
+
+  return (
+    <View style={[styles.contactAvatar, styles.avatarPlaceholder]}>
+      <Icon name="person" size={24} color="#888" />
+    </View>
+  );
+}, [getAvatarUri]);
 
   useEffect(() => {
     getE2EEClient().catch(err =>
@@ -103,7 +113,7 @@ const MocScreen = () => {
 
       setCreateError('');
       const roomTitle = contact?.name || contact?.matchPhone || 'Chat';
-      const roomAvatar = contact?.imageUri ?? null;
+      const roomAvatar = getAvatarUri(contact);
       const tracker = contact?.id ?? contact?.matchPhone ?? String(participantId);
 
       try {
@@ -135,7 +145,7 @@ const MocScreen = () => {
         setCreatingRoomFor(null);
       }
     },
-    [router, upsertRoom],
+    [router, upsertRoom, getAvatarUri],
   );
 
 
@@ -308,7 +318,13 @@ const MocScreen = () => {
     
     return (
       <View style={styles.chatsWrapper}>
-        <ScrollView contentContainerStyle={hasChats ? styles.chatListContainer : { flexGrow: 1 }}>
+        <ScrollView
+          contentContainerStyle={
+            hasChats
+              ? [styles.chatListContainer, { paddingBottom: insets.bottom + 96 }]
+              : { flexGrow: 1, paddingBottom: insets.bottom + 96 }
+          }
+        >
           {hasChats ? (
             filteredRooms.map(room => {
               const lastMessage = room.lastMessage?.text ?? 'No messages yet';
@@ -390,8 +406,8 @@ const MocScreen = () => {
                     key={contact?.matchUserId != null ? String(contact.matchUserId) : String(contact?.id ?? i)}
                     onPress={() => handleStartDirectChat(contact)}
                   >
-                    {contact?.imageUri ? (
-                      <Image source={{ uri: contact.imageUri }} style={styles.avatar} />
+                    {getAvatarUri(contact) ? (
+                      <Image source={{ uri: getAvatarUri(contact) }} style={styles.avatar} />
                     ) : (
                       <View style={[styles.avatar, styles.avatarPlaceholder]}>
                         <Icon name="person" size={22} color="#888" />
@@ -415,7 +431,10 @@ const MocScreen = () => {
             )}
             </ScrollView>
 
-     <TouchableOpacity style={styles.fab} onPress={() => router.push('/screens/ListsScreen')}>
+     <TouchableOpacity
+        style={[styles.fab, { bottom: insets.bottom + 16 }]}
+        onPress={() => router.push('/screens/ListsScreen')}
+      >
           <Icon name="playlist-add" size={20} color="#fff" />
           <Text style={styles.fabText}>create list</Text>
         </TouchableOpacity>
@@ -741,7 +760,6 @@ const styles = StyleSheet.create({
   // Floating action button
   fab: {
     position: 'absolute',
-    bottom: 30,
     right: 20,
     backgroundColor: '#1f6ea7',
     flexDirection: 'row',
