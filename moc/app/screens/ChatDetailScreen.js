@@ -714,6 +714,7 @@ export default function ChatDetailScreen() {
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const [androidKeyboardVisible, setAndroidKeyboardVisible] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(72);
   const router = useRouter();
   const isFocused = useIsFocused();
   const [appState, setAppState] = useState(AppState.currentState);
@@ -2343,6 +2344,7 @@ const makeReplyPayload = useCallback(
   }, []);
 
   const isIOS = Platform.OS === 'ios';
+  const BodyWrapper = isIOS ? KeyboardAvoidingView : View;
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
   const androidKeyboardOffset =
     Platform.OS === 'android' && androidKeyboardVisible
@@ -2357,7 +2359,7 @@ const makeReplyPayload = useCallback(
       : Math.max(insets.bottom, MARGIN);
 
   const overlayBottomOffset =
-    androidKeyboardOffset + MIC_SIZE + composerBottomInset + replyBarHeight + MARGIN * 2;
+    androidKeyboardOffset + composerHeight + MARGIN;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -2532,11 +2534,15 @@ const makeReplyPayload = useCallback(
             </View>
           ) : null}
           
-          <KeyboardAvoidingView
+          <BodyWrapper
             style={styles.chatBody}
-            behavior={isIOS ? 'padding' : undefined}
-            keyboardVerticalOffset={isIOS ? BAR_HEIGHT : 0}
-            enabled
+            {...(isIOS
+              ? {
+                  behavior: 'padding',
+                  keyboardVerticalOffset: BAR_HEIGHT,
+                  enabled: true,
+                }
+              : {})}
           >
           <FlatList
             ref={flatListRef}
@@ -2546,7 +2552,7 @@ const makeReplyPayload = useCallback(
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{
               padding: 12,
-              paddingBottom: 12,
+              paddingBottom: composerHeight + 12,
               flexGrow: 1,
             }}
             ListEmptyComponent={
@@ -2721,7 +2727,7 @@ const makeReplyPayload = useCallback(
       {attachMenuVisible && (
         <>
           <TouchableOpacity style={styles.attachOverlay} onPress={() => setAttachMenuVisible(false)} />
-          <View style={[styles.attachGrid, { bottom: androidKeyboardOffset + composerBottomInset + MESSAGE_BAR_HEIGHT }]}>
+          <View style={[styles.attachGrid, { bottom: androidKeyboardOffset + composerHeight }]}>
             {[
               ['photos', 'photo'],
               ['files', 'insert-drive-file'],
@@ -2883,12 +2889,12 @@ const makeReplyPayload = useCallback(
 
       {/* Input bar */}
         <View
+          onLayout={e => setComposerHeight(e.nativeEvent.layout.height)}
           style={[
             styles.bottomBar,
-            Platform.OS === 'android' && androidKeyboardVisible
-              ? { marginBottom: androidKeyboardOffset }
-              : null,
+            styles.bottomBarAbsolute,
             {
+              bottom: Platform.OS === 'android' ? androidKeyboardOffset : 0,
               paddingBottom: composerBottomInset,
             },
          ]}
@@ -3009,7 +3015,7 @@ const makeReplyPayload = useCallback(
             </TouchableOpacity>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </BodyWrapper>
        </>
       ) : (
         <View style={styles.missingRoomWrapper}>
@@ -3780,6 +3786,13 @@ const styles = StyleSheet.create({
     paddingTop: MARGIN,
     paddingBottom: MARGIN,
     backgroundColor: '#eef5fa',
+  },
+  bottomBarAbsolute: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    elevation: 20,
   },
   messageBarRow: {
     flexDirection: 'row',
