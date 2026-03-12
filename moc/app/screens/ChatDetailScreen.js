@@ -2338,10 +2338,7 @@ const makeReplyPayload = useCallback(
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
   const composerHeight = Math.max(MESSAGE_BAR_HEIGHT, MIC_SIZE);
 
-  const closedBottomInset =
-    Platform.OS === 'ios'
-      ? Math.max(insets.bottom, MARGIN)
-      : Math.max(insets.bottom, MARGIN);
+  const closedBottomInset = Math.max(insets.bottom, MARGIN);
 
   const androidKeyboardOffset =
     Platform.OS === 'android' && keyboardVisible
@@ -2349,9 +2346,7 @@ const makeReplyPayload = useCallback(
       : 0;
 
   const composerBottomInset =
-    Platform.OS === 'ios'
-      ? (keyboardVisible ? MARGIN : closedBottomInset)
-      : closedBottomInset;
+    keyboardVisible ? MARGIN : closedBottomInset;
 
   const bottomOffset = composerBottomInset + MARGIN + androidKeyboardOffset;
   
@@ -2887,7 +2882,10 @@ const makeReplyPayload = useCallback(
             styles.bottomBar,
             {
               paddingBottom: composerBottomInset,
-              marginBottom: androidKeyboardOffset,
+              transform:
+                Platform.OS === 'android'
+                  ? [{ translateY: -androidKeyboardOffset }]
+                  : undefined,
             },
          ]}
         >
@@ -2966,7 +2964,6 @@ const makeReplyPayload = useCallback(
                 value={input}
                 onChangeText={setInput}
                 onFocus={hideOverlay}
-                onBlur={() => setKeyboardVisible(false)}
               />
 
               <TouchableOpacity
@@ -3769,17 +3766,22 @@ const styles = StyleSheet.create({
   },
   chatBody: {
     flex: 1,
+    position: 'relative',
   },
   messagesList: {
     flex: 1,
   },
 
   bottomBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 20,
     paddingHorizontal: MARGIN,
     paddingTop: MARGIN,
     paddingBottom: MARGIN,
     backgroundColor: '#eef5fa',
-    flexShrink: 0,
   },
   messageBarRow: {
     flexDirection: 'row',
