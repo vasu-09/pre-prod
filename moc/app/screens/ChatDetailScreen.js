@@ -934,8 +934,6 @@ const avatarSource = avatarUri ? { uri: avatarUri } : null;
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState(null);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
@@ -2310,45 +2308,21 @@ const makeReplyPayload = useCallback(
 
   useEffect(() => {
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-    const handleShow = e => {
-      const height = e?.endCoordinates?.height ?? 0;
-      setKeyboardVisible(true);
-      setKeyboardHeight(height);
+    const showSub = Keyboard.addListener(showEvent, () => {
       requestAnimationFrame(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       });
-    };
-
-    const handleHide = () => {
-      setKeyboardVisible(false);
-      setKeyboardHeight(0);
-    };
-
-    const showSub = Keyboard.addListener(showEvent, handleShow);
-    const hideSub = Keyboard.addListener(hideEvent, handleHide);
+    });
 
     return () => {
       showSub.remove();
-      hideSub.remove();
     };
   }, []);
 
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
-  const composerHeight = Math.max(MESSAGE_BAR_HEIGHT, MIC_SIZE);
-
-  const closedBottomInset = Math.max(insets.bottom, MARGIN);
-
-  const androidKeyboardOffset =
-    Platform.OS === 'android' && keyboardVisible
-      ? Math.max(0, keyboardHeight - insets.bottom)
-      : 0;
-
-  const composerBottomInset =
-    keyboardVisible ? MARGIN : closedBottomInset;
-
-  const bottomOffset = composerBottomInset + MARGIN + androidKeyboardOffset;
+  const composerBottomInset = Math.max(insets.bottom, MARGIN);
+  const bottomOffset = composerBottomInset + replyBarHeight + MARGIN;
   
   const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
   const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
@@ -2530,7 +2504,7 @@ const makeReplyPayload = useCallback(
             style={styles.chatBody}
             behavior={keyboardBehavior}
             keyboardVerticalOffset={keyboardVerticalOffset}
-            enabled={Platform.OS === 'ios'}
+            enabled
           >
           <FlatList
             ref={flatListRef}
@@ -2540,8 +2514,7 @@ const makeReplyPayload = useCallback(
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{
               padding: 12,
-              paddingBottom:
-                composerHeight + composerBottomInset + androidKeyboardOffset + replyBarHeight + 12,
+              paddingBottom: 12,
               flexGrow: 1,
             }}
             ListEmptyComponent={
@@ -2882,10 +2855,6 @@ const makeReplyPayload = useCallback(
             styles.bottomBar,
             {
               paddingBottom: composerBottomInset,
-              transform:
-                Platform.OS === 'android'
-                  ? [{ translateY: -androidKeyboardOffset }]
-                  : undefined,
             },
          ]}
         >
@@ -3766,18 +3735,12 @@ const styles = StyleSheet.create({
   },
   chatBody: {
     flex: 1,
-    position: 'relative',
   },
   messagesList: {
     flex: 1,
   },
 
   bottomBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 20,
     paddingHorizontal: MARGIN,
     paddingTop: MARGIN,
     paddingBottom: MARGIN,
