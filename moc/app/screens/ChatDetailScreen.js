@@ -2311,10 +2311,11 @@ const makeReplyPayload = useCallback(
   useEffect(() => {
     if (Platform.OS === 'android') {
       const showSub = Keyboard.addListener('keyboardDidShow', e => {
+        const keyboardHeight = e?.endCoordinates?.height ?? 0;
         setAndroidKeyboardVisible(true);
-        setAndroidKeyboardHeight(e?.endCoordinates?.height ?? 0);
-
-    requestAnimationFrame(() => {
+        setAndroidKeyboardHeight(keyboardHeight);
+    
+      requestAnimationFrame(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         });
       });
