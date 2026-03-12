@@ -2885,7 +2885,9 @@ const makeReplyPayload = useCallback(
         <View
           style={[
             styles.bottomBar,
-            Platform.OS === 'android' ? { marginBottom: androidKeyboardOffset } : null,
+            Platform.OS === 'android' && androidKeyboardVisible
+              ? { marginBottom: androidKeyboardOffset }
+              : null,
             {
               paddingBottom: composerBottomInset,
             },
