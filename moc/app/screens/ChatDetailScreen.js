@@ -712,6 +712,8 @@ export default function ChatDetailScreen() {
   const flatListRef = useRef();
   const activeCallIdRef = useRef(null);
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
+  const [androidKeyboardVisible, setAndroidKeyboardVisible] = useState(false);
   const router = useRouter();
   const isFocused = useIsFocused();
   const [appState, setAppState] = useState(AppState.currentState);
@@ -2307,9 +2309,28 @@ const makeReplyPayload = useCallback(
   };
 
   useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    if (Platform.OS === 'android') {
+      const showSub = Keyboard.addListener('keyboardDidShow', e => {
+        setAndroidKeyboardVisible(true);
+        setAndroidKeyboardHeight(e?.endCoordinates?.height ?? 0);
 
-    const showSub = Keyboard.addListener(showEvent, () => {
+    requestAnimationFrame(() => {
+          flatListRef.current?.scrollToEnd({ animated: true });
+        });
+      });
+
+      const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+        setAndroidKeyboardVisible(false);
+        setAndroidKeyboardHeight(0);
+      });
+
+      return () => {
+        showSub.remove();
+        hideSub.remove();
+      };
+    }
+
+    const showSub = Keyboard.addListener('keyboardWillShow', () => {
       requestAnimationFrame(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       });
@@ -2322,12 +2343,20 @@ const makeReplyPayload = useCallback(
 
   const isIOS = Platform.OS === 'ios';
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
-  const composerBottomInset = Platform.OS === 'android'
-    ? insets.bottom + MARGIN
-    : Math.max(insets.bottom, MARGIN);
+  const androidKeyboardOffset =
+    Platform.OS === 'android' && androidKeyboardVisible
+      ? Math.max(0, androidKeyboardHeight - insets.bottom)
+      : 0;
+
+  // When keyboard is closed: stay above navigation bar.
+  // When keyboard is open: remove nav-bar spacing and sit just above keyboard.
+  const composerBottomInset =
+    Platform.OS === 'android'
+      ? (androidKeyboardVisible ? MARGIN : insets.bottom + MARGIN)
+      : Math.max(insets.bottom, MARGIN);
 
   const overlayBottomOffset =
-    MIC_SIZE + composerBottomInset + replyBarHeight + MARGIN * 2;
+    androidKeyboardOffset + MIC_SIZE + composerBottomInset + replyBarHeight + MARGIN * 2;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -2691,7 +2720,7 @@ const makeReplyPayload = useCallback(
       {attachMenuVisible && (
         <>
           <TouchableOpacity style={styles.attachOverlay} onPress={() => setAttachMenuVisible(false)} />
-          <View style={[styles.attachGrid, { bottom: composerBottomInset + MESSAGE_BAR_HEIGHT }]}>
+          <View style={[styles.attachGrid, { bottom: androidKeyboardOffset + composerBottomInset + MESSAGE_BAR_HEIGHT }]}>
             {[
               ['photos', 'photo'],
               ['files', 'insert-drive-file'],
@@ -2855,6 +2884,7 @@ const makeReplyPayload = useCallback(
         <View
           style={[
             styles.bottomBar,
+            Platform.OS === 'android' ? { marginBottom: androidKeyboardOffset } : null,
             {
               paddingBottom: composerBottomInset,
             },
