@@ -934,6 +934,7 @@ const avatarSource = avatarUri ? { uri: avatarUri } : null;
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState(null);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
@@ -1950,8 +1951,6 @@ const makeReplyPayload = useCallback(
     return { value, unit: unitMap[unitKey] ?? unitKey };
   }
 
-  const bottomOffset = insets.bottom + MARGIN * 2;
-
   // toggles ...
   const toggleCheck = i => setTodoState(s => { const c=[...s]; c[i].checked=!c[i].checked; return c; });
   const toggleExpand = i => setTodoState(s => { const c=[...s]; c[i].expanded=!c[i].expanded; return c; });
@@ -2309,21 +2308,39 @@ const makeReplyPayload = useCallback(
   };
 
   useEffect(() => {
-    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-    const sub = Keyboard.addListener(eventName, () => {
+    const handleShow = () => {
+      setKeyboardVisible(true);
       requestAnimationFrame(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       });
-    });
+    };
 
-    return () => sub.remove();
+    const handleHide = () => {
+      setKeyboardVisible(false);
+    };
+
+    const showSub = Keyboard.addListener(showEvent, handleShow);
+    const hideSub = Keyboard.addListener(hideEvent, handleHide);
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
   }, []);
 
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
   const composerHeight = Math.max(MESSAGE_BAR_HEIGHT, MIC_SIZE);
-  const composerBottomInset =
-  Platform.OS === 'ios' ? Math.max(insets.bottom, MARGIN) : MARGIN;
+  
+  const closedBottomInset =
+    Platform.OS === 'ios'
+      ? Math.max(insets.bottom, MARGIN)
+      : insets.bottom + MARGIN;
+
+  const composerBottomInset = keyboardVisible ? MARGIN : closedBottomInset;
+  const bottomOffset = composerBottomInset + MARGIN;
   const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
   const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
 
