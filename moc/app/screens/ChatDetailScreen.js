@@ -2321,10 +2321,13 @@ const makeReplyPayload = useCallback(
   }, []);
 
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
-  const composerBottomInset = Math.max(insets.bottom, MARGIN);
-  const bottomOffset = composerBottomInset + replyBarHeight + MARGIN;
-  
-  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
+  const composerBottomInset =
+    Platform.OS === 'ios' ? Math.max(insets.bottom, MARGIN) : MARGIN;
+
+  const overlayBottomOffset =
+    MIC_SIZE + composerBottomInset + replyBarHeight + MARGIN * 2;
+
+  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
   const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
 
   return (
@@ -2711,7 +2714,7 @@ const makeReplyPayload = useCallback(
 
       {/* List picker */}
       {showListPicker && !selectedListId && (
-        <View style={[styles.listPickerContainer, { bottom: MESSAGE_BAR_HEIGHT + bottomOffset }]}>
+        <View style={[styles.listPickerContainer, { bottom: overlayBottomOffset  }]}>
           <View style={styles.arrowDown} />
           <View style={styles.listPicker}>
             {sharedListsLoading ? (
@@ -2740,7 +2743,7 @@ const makeReplyPayload = useCallback(
 
       {/* To‑Do overlay */}
       {selectedListId ? (
-        <View style={[styles.todoOverlay, { bottom: MESSAGE_BAR_HEIGHT + bottomOffset }]}>
+        <View style={[styles.todoOverlay, { bottom: overlayBottomOffset }]}>
           <View style={styles.todoHeader}>
             <TouchableOpacity onPress={() => setSelectedListId(null)} style={{ padding: 8 }}>
               <Icon name="close" size={24} color="#333" />
