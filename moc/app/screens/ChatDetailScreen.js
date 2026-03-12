@@ -2320,15 +2320,14 @@ const makeReplyPayload = useCallback(
     };
   }, []);
 
+  const isIOS = Platform.OS === 'ios';
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
-  const composerBottomInset =
-    Platform.OS === 'ios' ? Math.max(insets.bottom, MARGIN) : MARGIN;
+  const composerBottomInset = Platform.OS === 'android'
+    ? insets.bottom + MARGIN
+    : Math.max(insets.bottom, MARGIN);
 
   const overlayBottomOffset =
     MIC_SIZE + composerBottomInset + replyBarHeight + MARGIN * 2;
-
-  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
-  const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -2505,8 +2504,8 @@ const makeReplyPayload = useCallback(
           
           <KeyboardAvoidingView
             style={styles.chatBody}
-            behavior={keyboardBehavior}
-            keyboardVerticalOffset={keyboardVerticalOffset}
+            behavior={isIOS ? 'padding' : undefined}
+            keyboardVerticalOffset={isIOS ? BAR_HEIGHT : 0}
             enabled
           >
           <FlatList
@@ -2692,7 +2691,7 @@ const makeReplyPayload = useCallback(
       {attachMenuVisible && (
         <>
           <TouchableOpacity style={styles.attachOverlay} onPress={() => setAttachMenuVisible(false)} />
-          <View style={[styles.attachGrid, { bottom: insets.bottom + MESSAGE_BAR_HEIGHT + MARGIN }]}>
+          <View style={[styles.attachGrid, { bottom: composerBottomInset + MESSAGE_BAR_HEIGHT }]}>
             {[
               ['photos', 'photo'],
               ['files', 'insert-drive-file'],
