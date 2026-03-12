@@ -13,6 +13,7 @@ import {
   AppState,
   FlatList,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -2307,12 +2308,26 @@ const makeReplyPayload = useCallback(
     }
   };
 
+  useEffect(() => {
+    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+
+    const sub = Keyboard.addListener(eventName, () => {
+      requestAnimationFrame(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      });
+    });
+
+    return () => sub.remove();
+  }, []);
+
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
-  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
+  const composerHeight = Math.max(MESSAGE_BAR_HEIGHT, MIC_SIZE);
+  const composerBottomInset = Math.max(insets.bottom, MARGIN);
+  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
   const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
 
   return (
-    <SafeAreaView style={styles.safeArea} >
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar backgroundColor="#1f6ea7" barStyle="light-content" />
 
       {/* Header */}
@@ -2488,7 +2503,6 @@ const makeReplyPayload = useCallback(
             style={styles.chatBody}
             behavior={keyboardBehavior}
             keyboardVerticalOffset={keyboardVerticalOffset}
-            enabled={Platform.OS === 'ios'}
           >
           <FlatList
             ref={flatListRef}
@@ -2498,12 +2512,7 @@ const makeReplyPayload = useCallback(
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{
               padding: 12,
-              paddingBottom:
-                MESSAGE_BAR_HEIGHT +
-                MIC_SIZE +
-                bottomOffset +
-                replyBarHeight +
-                12,
+              paddingBottom: composerHeight + composerBottomInset + replyBarHeight + 12,
               flexGrow: 1,
             }}
             ListEmptyComponent={
@@ -2843,7 +2852,7 @@ const makeReplyPayload = useCallback(
           style={[
             styles.bottomBar,
             {
-              paddingBottom: insets.bottom > 0 ? insets.bottom : MARGIN,
+              paddingBottom: composerBottomInset,
             },
          ]}
         >
