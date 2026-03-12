@@ -935,6 +935,7 @@ const avatarSource = avatarUri ? { uri: avatarUri } : null;
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
   const [playingMessageId, setPlayingMessageId] = useState(null);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [selectedMessages, setSelectedMessages] = useState([]);
   const [moreMenuVisible, setMoreMenuVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
@@ -2311,8 +2312,10 @@ const makeReplyPayload = useCallback(
     const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
 
-    const handleShow = () => {
+    const handleShow = e => {
+      const height = e?.endCoordinates?.height ?? 0;
       setKeyboardVisible(true);
+      setKeyboardHeight(height);
       requestAnimationFrame(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       });
@@ -2320,6 +2323,7 @@ const makeReplyPayload = useCallback(
 
     const handleHide = () => {
       setKeyboardVisible(false);
+      setKeyboardHeight(0);
     };
 
     const showSub = Keyboard.addListener(showEvent, handleShow);
@@ -2339,8 +2343,17 @@ const makeReplyPayload = useCallback(
       ? Math.max(insets.bottom, MARGIN)
       : Math.max(insets.bottom, MARGIN);
 
-  const composerBottomInset = keyboardVisible ? MARGIN : closedBottomInset;
-  const bottomOffset = composerBottomInset + MARGIN;
+  const androidKeyboardOffset =
+    Platform.OS === 'android' && keyboardVisible
+      ? Math.max(0, keyboardHeight - insets.bottom)
+      : 0;
+
+  const composerBottomInset =
+    Platform.OS === 'ios'
+      ? (keyboardVisible ? MARGIN : closedBottomInset)
+      : closedBottomInset;
+
+  const bottomOffset = composerBottomInset + MARGIN + androidKeyboardOffset;
   
   const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
   const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
@@ -2532,7 +2545,8 @@ const makeReplyPayload = useCallback(
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{
               padding: 12,
-              paddingBottom: composerHeight + composerBottomInset + replyBarHeight + 12,
+              paddingBottom:
+                composerHeight + composerBottomInset + androidKeyboardOffset + replyBarHeight + 12,
               flexGrow: 1,
             }}
             ListEmptyComponent={
@@ -2873,6 +2887,7 @@ const makeReplyPayload = useCallback(
             styles.bottomBar,
             {
               paddingBottom: composerBottomInset,
+              marginBottom: androidKeyboardOffset,
             },
          ]}
         >
