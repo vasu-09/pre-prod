@@ -2333,15 +2333,16 @@ const makeReplyPayload = useCallback(
 
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
   const composerHeight = Math.max(MESSAGE_BAR_HEIGHT, MIC_SIZE);
-  
+
   const closedBottomInset =
     Platform.OS === 'ios'
       ? Math.max(insets.bottom, MARGIN)
-      : insets.bottom + MARGIN;
+      : Math.max(insets.bottom, MARGIN);
 
   const composerBottomInset = keyboardVisible ? MARGIN : closedBottomInset;
   const bottomOffset = composerBottomInset + MARGIN;
-  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
+  
+  const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : undefined;
   const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
 
   return (
@@ -2521,6 +2522,7 @@ const makeReplyPayload = useCallback(
             style={styles.chatBody}
             behavior={keyboardBehavior}
             keyboardVerticalOffset={keyboardVerticalOffset}
+            enabled={Platform.OS === 'ios'}
           >
           <FlatList
             ref={flatListRef}
@@ -2949,6 +2951,7 @@ const makeReplyPayload = useCallback(
                 value={input}
                 onChangeText={setInput}
                 onFocus={hideOverlay}
+                onBlur={() => setKeyboardVisible(false)}
               />
 
               <TouchableOpacity
