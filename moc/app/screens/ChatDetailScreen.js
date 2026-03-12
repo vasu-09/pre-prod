@@ -2322,7 +2322,8 @@ const makeReplyPayload = useCallback(
 
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
   const composerHeight = Math.max(MESSAGE_BAR_HEIGHT, MIC_SIZE);
-  const composerBottomInset = Math.max(insets.bottom, MARGIN);
+  const composerBottomInset =
+  Platform.OS === 'ios' ? Math.max(insets.bottom, MARGIN) : MARGIN;
   const keyboardBehavior = Platform.OS === 'ios' ? 'padding' : 'height';
   const keyboardVerticalOffset = Platform.OS === 'ios' ? BAR_HEIGHT : 0;
 
