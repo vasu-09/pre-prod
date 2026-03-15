@@ -19,6 +19,11 @@ public class E2eeDevice {
     @Lob @Column(name="signed_prekey_sig", nullable=false) private byte[] signedPrekeySig; // Ed25519 sig
 
     @Column(name="last_seen", nullable=false) private Instant lastSeen = Instant.now();
+    @Column(name = "registered_at", nullable = false) private Instant registeredAt = Instant.now();
+    @Column(name = "history_visible_from", nullable = false) private Instant historyVisibleFrom = Instant.now();
+    @Column(name = "status", nullable = false, length = 16) private String status = "ACTIVE";
+    @Column(name = "revoked_at") private Instant revokedAt;
+    @Column(name = "device_epoch", nullable = false) private Long deviceEpoch = 1L;
 
     public Long getId() { return id; }
     public Long getUserId() { return userId; } public void setUserId(Long userId) { this.userId = userId; }
@@ -29,4 +34,9 @@ public class E2eeDevice {
     public byte[] getSignedPrekeyPub() { return signedPrekeyPub; } public void setSignedPrekeyPub(byte[] signedPrekeyPub) { this.signedPrekeyPub = signedPrekeyPub; }
     public byte[] getSignedPrekeySig() { return signedPrekeySig; } public void setSignedPrekeySig(byte[] signedPrekeySig) { this.signedPrekeySig = signedPrekeySig; }
     public Instant getLastSeen() { return lastSeen; } public void setLastSeen(Instant lastSeen) { this.lastSeen = lastSeen; }
+    public Instant getRegisteredAt() { return registeredAt; } public void setRegisteredAt(Instant registeredAt) { this.registeredAt = registeredAt; }
+    public Instant getHistoryVisibleFrom() { return historyVisibleFrom; } public void setHistoryVisibleFrom(Instant historyVisibleFrom) { this.historyVisibleFrom = historyVisibleFrom; }
+    public String getStatus() { return status; } public void setStatus(String status) { this.status = status; }
+    public Instant getRevokedAt() { return revokedAt; } public void setRevokedAt(Instant revokedAt) { this.revokedAt = revokedAt; }
+    public Long getDeviceEpoch() { return deviceEpoch; } public void setDeviceEpoch(Long deviceEpoch) { this.deviceEpoch = deviceEpoch; }
 }

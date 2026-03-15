@@ -1,10 +1,8 @@
 package com.om.Real_Time_Communication.service;
 
 import com.om.Real_Time_Communication.Repository.ChatRoomParticipantRepository;
-import com.om.Real_Time_Communication.Repository.ChatRoomRepository;
 import io.micrometer.common.lang.Nullable;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -16,24 +14,22 @@ import java.util.Set;
 @Service
 public class RoomMembershipService {
 
-
-
     private final ChatRoomParticipantRepository repo;
+    private final E2eeDeviceService deviceService;
 
     @Autowired
-    private  @Nullable StringRedisTemplate redis;
-    private  Duration ttl;
+    private @Nullable StringRedisTemplate redis;
 
-    private String kUserRooms(Long userId) { return "user:rooms:" + userId; }
-    private String kRoomMembers(Long roomId) { return "room:members:" + roomId; }
+    private Duration ttl = Duration.ofMinutes(10);
 
+    private String kUserRooms(Long userId, String deviceId) { return "user:rooms:" + userId + ":" + deviceId; }
 
-    public RoomMembershipService(ChatRoomParticipantRepository repo) {
+    public RoomMembershipService(ChatRoomParticipantRepository repo, E2eeDeviceService deviceService) {
         this.repo = repo;
+        this.deviceService = deviceService;
     }
 
     public List<Long> memberIds(Long roomId) {
-        // Example: query participants table
         return repo.findUserIdsByRoomId(roomId);
     }
 
@@ -41,23 +37,22 @@ public class RoomMembershipService {
         return repo.existsByRoomIdAndUserId(roomId, userId);
     }
 
-    public List<Long> roomsForUser(Long userId) {
-        // Try Redis first
+    public List<Long> roomsForUser(Long userId, String deviceId) {
+        var activeDevice = deviceService.requireActiveDevice(userId, deviceId);
+
         if (redis != null) {
-            Set<String> s = redis.opsForSet().members(kUserRooms(userId));
-            if (s != null && !s.isEmpty()) {
-                // touch TTL
-                redis.expire(kUserRooms(userId), ttl);
-                List<Long> out = new ArrayList<>(s.size());
-                for (String v : s) out.add(Long.valueOf(v));
+            Set<String> cached = redis.opsForSet().members(kUserRooms(userId, deviceId));
+            if (cached != null && !cached.isEmpty()) {
+                redis.expire(kUserRooms(userId, deviceId), ttl);
+                List<Long> out = new ArrayList<>(cached.size());
+                for (String v : cached) out.add(Long.valueOf(v));
                 return out;
             }
         }
-        // Fallback to DB
-        List<Long> list = repo.findChatRoomIdsByUserId(userId);
-        // Warm cache
+        
+        List<Long> list = repo.findVisibleChatRoomIdsByUserId(userId, activeDevice.getHistoryVisibleFrom());
         if (redis != null && !list.isEmpty()) {
-            String key = kUserRooms(userId);
+            String key = kUserRooms(userId, deviceId);
             String[] vals = list.stream().map(String::valueOf).toArray(String[]::new);
             redis.opsForSet().add(key, vals);
             redis.expire(key, ttl);
@@ -65,9 +60,18 @@ public class RoomMembershipService {
         return list;
     }
 
+    public void evictUserRooms(Long userId, String deviceId) {
+        if (redis != null) {
+            redis.delete(kUserRooms(userId, deviceId));
+        }
+    }
+
     public void evictUserRooms(Long userId) {
         if (redis != null) {
-            redis.delete(kUserRooms(userId));
+            Set<String> keys = redis.keys("user:rooms:" + userId + ":*");
+            if (keys != null && !keys.isEmpty()) {
+                redis.delete(keys);
+            }
         }
     }
 }

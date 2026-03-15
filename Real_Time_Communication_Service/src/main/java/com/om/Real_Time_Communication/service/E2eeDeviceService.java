@@ -53,10 +53,26 @@ public class E2eeDeviceService {
             return false;
         }
 
+        Instant now = Instant.now();
         E2eeDevice dev = deviceRepo.findByUserIdAndDeviceId(userId, dto.getDeviceId()).orElseGet(E2eeDevice::new);
         boolean existing = dev.getId() != null;
         boolean keyChanged = existing && (!java.util.Arrays.equals(dev.getIdentityKeyPub(), dto.getIdentityKeyPub())
                 || !java.util.Arrays.equals(dev.getSignedPrekeyPub(), dto.getSignedPrekeyPub()));
+
+        if (!existing) {
+            dev.setRegisteredAt(now);
+            dev.setHistoryVisibleFrom(now);
+            dev.setStatus("ACTIVE");
+            dev.setDeviceEpoch(1L);
+            dev.setRevokedAt(null);
+        } else if (keyChanged) {
+            Long currentEpoch = dev.getDeviceEpoch() == null ? 0L : dev.getDeviceEpoch();
+            dev.setDeviceEpoch(currentEpoch + 1L);
+            dev.setHistoryVisibleFrom(now);
+            dev.setStatus("ACTIVE");
+            dev.setRevokedAt(null);
+        }
+
         dev.setUserId(userId);
         dev.setDeviceId(dto.getDeviceId());
         dev.setName(dto.getName());
@@ -64,12 +80,12 @@ public class E2eeDeviceService {
         dev.setIdentityKeyPub(dto.getIdentityKeyPub());
         dev.setSignedPrekeyPub(dto.getSignedPrekeyPub());
         dev.setSignedPrekeySig(dto.getSignedPrekeySig());
-        dev.setLastSeen(Instant.now());
+        dev.setLastSeen(now);
         deviceRepo.save(dev);
 
         if (keyChanged) {
             prekeyRepo.deleteByUserIdAndDeviceId(userId, dto.getDeviceId());
-            log.info("E2EE bundle refreshed; purged old OTKs for user={} device={} after key change", userId, dto.getDeviceId());
+            log.info("E2EE bundle refreshed; purged old OTKs for user={} device={} after key change; epoch={}", userId, dto.getDeviceId(), dev.getDeviceEpoch());
         }
 
         if (dto.getOneTimePrekeys()!=null) {
@@ -162,6 +178,17 @@ public class E2eeDeviceService {
         return claimOneTimePrekey(req.getTargetUserId(), req.getTargetDeviceId());
     }
 
+    @Transactional(readOnly = true)
+    public E2eeDevice requireActiveDevice(Long userId, String deviceId) {
+        require(deviceId != null && !deviceId.isBlank(), "deviceId required");
+        E2eeDevice device = deviceRepo.findByUserIdAndDeviceId(userId, deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("device not found"));
+        if (!"ACTIVE".equalsIgnoreCase(device.getStatus())) {
+            throw new IllegalArgumentException("device is not active");
+        }
+        return device;
+    }
+    
     @Transactional(readOnly = true)
     public long availablePrekeys(Long userId, String deviceId) {
         return prekeyRepo.countByUserIdAndDeviceIdAndConsumedFalse(userId, deviceId);

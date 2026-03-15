@@ -24,11 +24,16 @@ public class MessagePagingService {
 
     private final ChatRoomParticipantRepository partrepo;
     private final StringRedisTemplate redis;
+    private final E2eeDeviceService deviceService;
 
-    public MessagePagingService(ChatMessageRepository repo, ChatRoomParticipantRepository partrepo, StringRedisTemplate redis) {
+    public MessagePagingService(ChatMessageRepository repo,
+                                ChatRoomParticipantRepository partrepo,
+                                StringRedisTemplate redis,
+                                E2eeDeviceService deviceService) {
         this.repo = repo;
         this.partrepo = partrepo;
         this.redis = redis;
+        this.deviceService = deviceService;
     }
 
     @Transactional
@@ -39,22 +44,29 @@ public class MessagePagingService {
 
     }
 
-    public List<ChatMessage> list(Long roomId, Instant beforeTs, Long beforeId, int limit) {
+    public List<ChatMessage> list(Long roomId,
+                                  Long userId,
+                                  String deviceId,
+                                  Instant beforeTs,
+                                  Long beforeId,
+                                  int limit) {
         int lim = Math.min(Math.max(limit, 1), 200);
+        Instant cutoff = cutoffFor(userId, deviceId);
         if (beforeTs == null || beforeId == null) {
-            return repo.newest(roomId, PageRequest.of(0, lim));
+           return repo.newestVisible(roomId, cutoff, PageRequest.of(0, lim));
         }
-        return repo.pageBackward(roomId, beforeTs, beforeId, PageRequest.of(0, lim));
+        return repo.pageBackwardVisible(roomId, cutoff, beforeTs, beforeId, PageRequest.of(0, lim));
         // client uses the last item’s (serverTs,id) as next cursor
     }
 
-    public PageDto pageForward(Long roomId, String cursor, int limit) {
+    public PageDto pageForward(Long roomId, Long userId, String deviceId, String cursor, int limit) {
         java.util.AbstractMap.SimpleEntry<Instant, Long> c =
                 (cursor == null) ? null : MessageCursor.decode(cursor);
         Timestamp ts = (c == null) ? new Timestamp(0) : Timestamp.from(c.getKey());
         Long id = (c == null) ? 0L : c.getValue();
+        Timestamp cutoff = Timestamp.from(cutoffFor(userId, deviceId));
 
-        List<ChatMessage> rows = repo.pageForward(roomId, ts, id, limit + 1);
+        List<ChatMessage> rows = repo.pageForwardVisible(roomId, cutoff, ts, id, limit + 1);
         boolean hasMore = rows.size() > limit;
         if (hasMore) rows = rows.subList(0, limit);
 
@@ -64,10 +76,11 @@ public class MessagePagingService {
         return new PageDto(rows, next, null);
     }
 
-    public PageDto pageBackward(Long roomId, String cursor, int limit) {
+    public PageDto pageBackward(Long roomId, Long userId, String deviceId, String cursor, int limit) {
         if (cursor == null) throw new IllegalArgumentException("cursor required for backward paging");
         java.util.AbstractMap.SimpleEntry<Instant, Long> c = MessageCursor.decode(cursor);
-        List<ChatMessage> rows = repo.pageBackward(roomId, Timestamp.from(c.getKey()), c.getValue(), limit + 1);
+        Timestamp cutoff = Timestamp.from(cutoffFor(userId, deviceId));
+        List<ChatMessage> rows = repo.pageBackwardVisible(roomId, cutoff, Timestamp.from(c.getKey()), c.getValue(), limit + 1);
         boolean hasMore = rows.size() > limit;
         if (hasMore) rows = rows.subList(0, limit);
         // we fetched DESC; return ASC
@@ -79,6 +92,10 @@ public class MessagePagingService {
         return new PageDto(rows, null, prev);
     }
 
+    private Instant cutoffFor(Long userId, String deviceId) {
+        return deviceService.requireActiveDevice(userId, deviceId).getHistoryVisibleFrom();
+    }
+    
     public static final class PageDto {
         public final List<ChatMessage> data;
         public final String next; // for forward

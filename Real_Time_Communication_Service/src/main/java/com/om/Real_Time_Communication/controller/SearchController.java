@@ -1,16 +1,16 @@
 package com.om.Real_Time_Communication.controller;
 
-// imports:
 import com.om.Real_Time_Communication.dto.SearchMessageDoc;
 import com.om.Real_Time_Communication.service.RoomMembershipService;
 import com.om.Real_Time_Communication.service.SearchService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/search")
-
 @CrossOrigin(origins = "${cors.allowed-origins}")
 public class SearchController {
     private final SearchService searchService;
@@ -23,10 +23,12 @@ public class SearchController {
 
     @GetMapping
     public java.util.List<SearchMessageDoc> searchAll(Principal principal,
+                                                      @RequestHeader(value = "X-Device-Id", required = false) String deviceIdHeader,
                                                       @RequestParam String q,
                                                       @RequestParam(defaultValue = "50") int limit) {
         Long userId = Long.valueOf(principal.getName());
-        var roomIds = membership.roomsForUser(userId);
+        String deviceId = resolveDeviceId(principal, deviceIdHeader);
+        var roomIds = membership.roomsForUser(userId, deviceId);
         return searchService.searchAll(userId, roomIds, q, limit);
     }
 
@@ -38,5 +40,18 @@ public class SearchController {
         Long userId = Long.valueOf(principal.getName());
         if (!membership.isMember(userId, roomId)) throw new IllegalArgumentException("Forbidden");
         return searchService.searchInRoomMvp(roomId, q, limit);
+    }
+
+    private String resolveDeviceId(Principal principal, String fallbackHeader) {
+        if (principal instanceof JwtAuthenticationToken jwtAuth) {
+            Object claimDeviceId = jwtAuth.getToken().getClaim("deviceId");
+            if (claimDeviceId instanceof String asString && !asString.isBlank()) {
+                return asString;
+            }
+        }
+        if (fallbackHeader != null && !fallbackHeader.isBlank()) {
+            return fallbackHeader;
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Authenticated device id is missing");
     }
 }

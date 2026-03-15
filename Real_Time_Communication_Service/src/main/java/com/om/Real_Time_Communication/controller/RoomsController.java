@@ -159,14 +159,16 @@ public class RoomsController {
     @GetMapping("/{roomId}/messages")
     public List<ChatMessageDto> list(Principal principal,
                                      @PathVariable Long roomId,
+                                     @RequestHeader(value = "X-Device-Id", required = false) String deviceIdHeader,
                                      @RequestParam(required = false) Instant beforeTs,
                                      @RequestParam(required = false) Long beforeId,
                                      @RequestParam(defaultValue = "50") int limit) {
-        Long userId = Long.valueOf(principal.getName());
+        Long userId = resolveUserId(principal);
         if (!acl.canPublish(userId,roomId)) // or a dedicated canRead(...)
             throw new IllegalArgumentException("Forbidden");
 
-        return paging.list(roomId, beforeTs, beforeId, limit)
+        String deviceId = resolveDeviceId(principal, deviceIdHeader);
+        return paging.list(roomId, userId, deviceId, beforeTs, beforeId, limit)
                 .stream().map(mapper::toDto).toList();
     }
 
@@ -179,6 +181,20 @@ public class RoomsController {
         paging.markRead(roomId, userId, messageId);
         return Map.of("ok", true);
     }
+
+    private String resolveDeviceId(Principal principal, String fallbackHeader) {
+        if (principal instanceof JwtAuthenticationToken jwtAuth) {
+            Object claimDeviceId = jwtAuth.getToken().getClaim("deviceId");
+            if (claimDeviceId instanceof String asString && !asString.isBlank()) {
+                return asString;
+            }
+        }
+        if (fallbackHeader != null && !fallbackHeader.isBlank()) {
+            return fallbackHeader;
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Authenticated device id is missing");
+    }
+
     private Long resolveUserId(Principal principal) {
         if (principal == null) {
             throw new ResponseStatusException(

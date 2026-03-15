@@ -56,6 +56,16 @@ public interface ChatRoomParticipantRepository extends JpaRepository<ChatRoomPar
                        @Param("userId") Long userId,
                        @Param("messageId") String messageId);
 
-    @Query("select p.chatRoom.id from ChatRoomParticipant p where p.userId = :userId and (p.hidden = false or p.hidden is null)")
-    List<Long> findChatRoomIdsByUserId(@Param("userId") Long userId);
+    @Query("""
+        select p.chatRoom.id
+          from ChatRoomParticipant p
+          join ChatMessage m on m.roomId = p.chatRoom.id
+         where p.userId = :userId
+           and (p.hidden = false or p.hidden is null)
+           and m.serverTs > :cutoff
+         group by p.chatRoom.id
+         order by max(m.serverTs) desc
+    """)
+    List<Long> findVisibleChatRoomIdsByUserId(@Param("userId") Long userId,
+                                              @Param("cutoff") java.time.Instant cutoff);
 }
