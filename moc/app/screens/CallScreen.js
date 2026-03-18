@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -10,17 +10,48 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-
-  
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import useCallSignalingHook from '../hooks/useCallSignaling';
 
-// Fallback replacement for LinearGradient to avoid requiring an extra
-// dependency. It simply renders a solid color view that matches the
-// previous gradient's starting color.
+import useCallSession from '../hooks/useCallSession';
+
 function GradientCircle({ style }) {
   return <View style={[style, { backgroundColor: '#a6d0ecff' }]} />;
 }
+
+const formatDuration = totalSeconds => {
+  const safeSeconds = Math.max(0, totalSeconds || 0);
+  const minutes = Math.floor(safeSeconds / 60)
+    .toString()
+    .padStart(2, '0');
+  const seconds = Math.floor(safeSeconds % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${minutes}:${seconds}`;
+};
+
+const getStatusText = (sessionState, role) => {
+  switch (sessionState) {
+    case 'outgoing_invite':
+      return 'Calling…';
+    case 'incoming_invite':
+      return 'Incoming call…';
+    case 'ringing':
+      return role === 'caller' ? 'Ringing…' : 'Connecting…';
+    case 'connecting':
+      return 'Connecting…';
+    case 'connected':
+      return 'Connected';
+    case 'reconnecting':
+      return 'Reconnecting…';
+    case 'failed':
+      return 'Call failed';
+    case 'ended':
+      return 'Call ended';
+    case 'idle':
+    default:
+      return role === 'callee' ? 'Connecting…' : 'Calling…';
+  }
+};
 
 export default function CallScreen() {
   const router = useRouter();
@@ -41,91 +72,42 @@ export default function CallScreen() {
 
   const parsedCallId = callIdRaw != null ? Number(callIdRaw) : null;
   const callId = parsedCallId != null && !Number.isNaN(parsedCallId) ? parsedCallId : null;
-  const [statusText, setStatusText] = useState(
-    role === 'callee' ? 'Incoming call…' : 'Calling…',
-  );
-  const hasEndedRef = useRef(false);
-  const joinedCallRef = useRef(null);
 
+  const {
+    state: sessionState,
+    remoteStream,
+    startOutgoing,
+    acceptIncoming,
+    endSession,
+    toggleMute,
+    isMuted,
+  } = useCallSession({
+    callId,
+    isVideo: false,
+    isCallee: role === 'callee',
+  });
+
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const connectedAtRef = useRef(null);
+  const startHandledRef = useRef(false);
+  const closingRef = useRef(false);
   const wave1 = useRef(new Animated.Value(0)).current;
   const wave2 = useRef(new Animated.Value(0)).current;
 
-  const handleCallEvent = useCallback(
-    event => {
-      if (!event) {
-        return;
-      }
-      const eventCallId =
-        typeof event.callId === 'number' ? event.callId : Number(event.callId ?? callId);
-      if (callId && !Number.isNaN(eventCallId) && eventCallId !== callId) {
-        return;
-      }
-      switch (event.type) {
-        case 'call.ringing':
-          if (role === 'caller') {
-            setStatusText('Ringing…');
-          }
-          break;
-        case 'call.answer':
-        case 'call.join':
-          setStatusText('Connected');
-          break;
-        case 'call.decline':
-          if (!hasEndedRef.current) {
-            hasEndedRef.current = true;
-            setStatusText('Declined');
-            Alert.alert('Call declined', 'The other participant declined the call.');
-            router.back();
-          }
-          break;
-        case 'call.end':
-          if (!hasEndedRef.current) {
-            hasEndedRef.current = true;
-            setStatusText('Call ended');
-            router.back();
-          }
-          break;
-        case 'call.fail':
-          if (!hasEndedRef.current) {
-            hasEndedRef.current = true;
-            setStatusText('Call failed');
-            Alert.alert('Call failed', 'The call ended unexpectedly.');
-            router.back();
-          }
-          break;
-        default:
-          break;
-      }
-    },
-    [callId, role, router],
-  );
-
-  const { joinCall, leaveCall, endCall: signalEndCall, markRinging } = useCallSignalingHook({
-    callId,
-    onCallEvent: handleCallEvent,
-  });
-
   useEffect(() => {
-    if (!callId) {
-      return;
-    }
-    if (joinedCallRef.current === callId) {
+    if (!callId || startHandledRef.current) {
       return;
     }
 
-    joinedCallRef.current = callId;
-    hasEndedRef.current = false;
-    joinCall(callId).catch(err => console.warn('Failed to join call', err));
-    if (role === 'callee') {
-      markRinging(callId).catch(err => console.warn('Failed to signal ringing state', err));
-    }
-    return () => {
-      if (joinedCallRef.current === callId) {
-        joinedCallRef.current = null;
-      }
-      leaveCall(callId).catch(err => console.warn('Failed to leave call', err));
-    };
-  }, [callId, joinCall, leaveCall, markRinging, role]);
+    startHandledRef.current = true;
+    const action = role === 'callee' ? acceptIncoming : startOutgoing;
+
+    action().catch(err => {
+      console.warn('Failed to initialize audio call session', err);
+      Alert.alert('Call error', 'Unable to start this audio call.');
+      router.back();
+    });
+  }, [acceptIncoming, callId, role, router, startOutgoing]);
 
   useEffect(() => {
     const animate = (anim, delay = 0) =>
@@ -145,29 +127,63 @@ export default function CallScreen() {
     animate(wave2, 1000);
   }, [wave1, wave2]);
 
+  useEffect(() => {
+    if (sessionState === 'connected' && !connectedAtRef.current) {
+      connectedAtRef.current = Date.now();
+      return;
+    }
+
+    if (sessionState !== 'connected') {
+      connectedAtRef.current = null;
+      setElapsedSeconds(0);
+    }
+  }, [sessionState]);
+
+  useEffect(() => {
+    if (sessionState !== 'connected' || !connectedAtRef.current) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      if (!connectedAtRef.current) {
+        return;
+      }
+      setElapsedSeconds(Math.floor((Date.now() - connectedAtRef.current) / 1000));
+    }, 1000);
+
+    return () => clearInterval(intervalId);
+  }, [sessionState]);
+
+  useEffect(() => {
+    if ((sessionState === 'ended' || sessionState === 'failed') && !closingRef.current) {
+      const timeoutId = setTimeout(() => {
+        router.back();
+      }, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [router, sessionState]);
+
+  const statusText = useMemo(() => getStatusText(sessionState, role), [role, sessionState]);
   const scale1 = wave1.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] });
   const opacity1 = wave1.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] });
   const scale2 = wave2.interpolate({ inputRange: [0, 1], outputRange: [1, 1.5] });
   const opacity2 = wave2.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] });
 
+  const handleEnd = async () => {
+    closingRef.current = true;
+    try {
+      await endSession();
+    } catch (err) {
+      console.warn('Failed to end audio call', err);
+    } finally {
+      router.back();
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity
-          onPress={async () => {
-            if (callId) {
-              try {
-                hasEndedRef.current = true;
-                setStatusText('Call ended');
-                await signalEndCall();
-              } catch (err) {
-                console.warn('Failed to end call', err);
-              }
-            }
-            router.back();
-          }}
-          style={styles.backBtn}
-        >
+        <TouchableOpacity onPress={handleEnd} style={styles.backBtn}>
           <Icon name="arrow-back" size={28} color="#1f6ea7" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{name}</Text>
@@ -193,31 +209,27 @@ export default function CallScreen() {
             )}
           </View>
         </View>
+
         <Text style={styles.statusText}>{statusText}</Text>
+        <Text style={styles.subStatusText}>
+          {sessionState === 'connected'
+            ? formatDuration(elapsedSeconds)
+            : remoteStream
+              ? 'Voice channel ready'
+              : role === 'caller'
+                ? 'Waiting for answer'
+                : 'Joining call'}
+        </Text>
       </View>
 
       <View style={[styles.controls, { paddingBottom: insets.bottom + 24 }]}>
-        <TouchableOpacity style={styles.controlBtn}>
-          <Icon name="mic-off" size={28} color="#fff" />
+        <TouchableOpacity style={styles.controlBtn} onPress={toggleMute}>
+          <Icon name={isMuted ? 'mic-off' : 'mic'} size={28} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlBtn}>
+        <TouchableOpacity style={[styles.controlBtn, styles.disabledControlBtn]} activeOpacity={0.8}>
           <Icon name="volume-up" size={28} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.controlBtn, styles.endCall]}
-          onPress={async () => {
-            if (callId) {
-              try {
-                hasEndedRef.current = true;
-                setStatusText('Call ended');
-                await signalEndCall();
-              } catch (err) {
-                console.warn('Failed to end call', err);
-              }
-            }
-            router.back();
-          }}
-        >
+        <TouchableOpacity style={[styles.controlBtn, styles.endCall]} onPress={handleEnd}>
           <Icon name="call-end" size={28} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -244,7 +256,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
-    marginRight: 28, // to offset back button width for centering
+    marginRight: 28,
   },
   content: {
     flex: 1,
@@ -284,7 +296,13 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   statusText: {
-    fontSize: 18,
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#0F172A',
+  },
+  subStatusText: {
+    marginTop: 8,
+    fontSize: 15,
     color: '#555',
   },
   controls: {
@@ -300,6 +318,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#1f6ea7',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  disabledControlBtn: {
+    opacity: 0.65,
   },
   endCall: {
     backgroundColor: '#E53935',

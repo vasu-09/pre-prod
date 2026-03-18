@@ -48,7 +48,7 @@ export default function VideoCallReceivingScreen() {
         return;
       }
 
-      switch (event.type) {
+      switch (event.type ?? event.event) {
         case 'call.end':
         case 'call.fail':
         case 'call.decline':
@@ -62,10 +62,20 @@ export default function VideoCallReceivingScreen() {
     [callId, router],
   );
 
-  const signaling = useCallSignalingHook({
+  const { declineCall, markRinging } = useCallSignalingHook({
     callId,
     onCallEvent: handleIncomingEvent,
   });
+
+  useEffect(() => {
+    if (!callId) {
+      return;
+    }
+
+    markRinging(callId).catch(err => {
+      console.warn('Failed to mark video call as ringing', err);
+    });
+  }, [callId, markRinging]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -91,8 +101,8 @@ export default function VideoCallReceivingScreen() {
 
   const handleDecline = async () => {
     try {
-      if (callId && typeof signaling?.declineCall === 'function') {
-        await signaling.declineCall(callId);
+      if (callId) {
+        await declineCall(callId);
       }
     } catch (err) {
       console.warn('Failed to decline video call', err);
@@ -102,35 +112,23 @@ export default function VideoCallReceivingScreen() {
     }
   };
 
-  const handleAccept = async () => {
+  const handleAccept = () => {
     if (!callId) {
       Alert.alert('Call unavailable', 'Unable to open this incoming call.');
       return;
     }
 
-    try {
-      // Important:
-      // If your hook supports answerCall, this is the right place to send it.
-      if (typeof signaling?.answerCall === 'function') {
-        await signaling.answerCall(callId);
-      }
+    closedRef.current = true;
 
-      closedRef.current = true;
-
-      router.replace({
-        pathname: '/screens/VideoCallScreen',
-        params: {
-          callId: String(callId),
-          name,
-          ...(image ? { image } : {}),
-          role: 'callee',
-          accepted: '1',
-        },
-      });
-    } catch (err) {
-      console.warn('Failed to accept video call', err);
-      Alert.alert('Call error', 'Unable to accept this video call right now.');
-    }
+    router.replace({
+      pathname: '/screens/VideoCallScreen',
+      params: {
+        callId: String(callId),
+        name,
+        ...(image ? { image } : {}),
+        role: 'callee',
+      },
+    });
   };
 
   return (
@@ -169,7 +167,7 @@ export default function VideoCallReceivingScreen() {
             {name}
           </Text>
 
-          <Text style={styles.status}>wants to start a video call</Text>
+          <Text style={styles.status}>is calling you…</Text>
         </View>
         <View style={[styles.bottomArea, { paddingBottom: insets.bottom + 22 }]}>
           <View style={styles.controlsRow}>

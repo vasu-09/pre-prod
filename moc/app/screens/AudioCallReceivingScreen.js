@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
@@ -15,6 +15,8 @@ export default function AudioCallReceivingScreen() {
   const name = pickParam(params?.name) ?? 'Unknown caller';
   const image = pickParam(params?.image);
   const callIdRaw = pickParam(params?.callId);
+  const closedRef = useRef(false);
+
   const callId = useMemo(() => {
     if (callIdRaw == null) {
       return null;
@@ -23,9 +25,42 @@ export default function AudioCallReceivingScreen() {
     return Number.isNaN(parsed) ? null : parsed;
   }, [callIdRaw]);
 
-  const { declineCall } = useCallSignalingHook({
+  const handleIncomingEvent = useCallback(
+    event => {
+      if (!event || closedRef.current) {
+        return;
+      }
+
+      const eventCallId =
+        typeof event.callId === 'number' ? event.callId : Number(event.callId ?? callId);
+
+      if (callId && !Number.isNaN(eventCallId) && eventCallId !== callId) {
+        return;
+      }
+
+      const eventType = event.type ?? event.event;
+      if (eventType === 'call.end' || eventType === 'call.fail' || eventType === 'call.decline') {
+        closedRef.current = true;
+        router.back();
+      }
+    },
+    [callId, router],
+  );
+
+  const { declineCall, markRinging } = useCallSignalingHook({
     callId,
+    onCallEvent: handleIncomingEvent,
   });
+
+  useEffect(() => {
+    if (!callId) {
+      return;
+    }
+
+    markRinging(callId).catch(err => {
+      console.warn('Failed to mark audio call as ringing', err);
+    });
+  }, [callId, markRinging]);
 
   const handleDecline = async () => {
     try {
@@ -35,6 +70,7 @@ export default function AudioCallReceivingScreen() {
     } catch (err) {
       console.warn('Failed to decline audio call', err);
     } finally {
+      closedRef.current = true;
       router.back();
     }
   };
@@ -44,6 +80,8 @@ export default function AudioCallReceivingScreen() {
       Alert.alert('Call unavailable', 'Unable to open this incoming call.');
       return;
     }
+
+    closedRef.current = true;
     router.replace({
       pathname: '/screens/CallScreen',
       params: {
@@ -57,7 +95,7 @@ export default function AudioCallReceivingScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={[styles.header, { paddingTop: insets.top }]}> 
+      <View style={[styles.header, { paddingTop: insets.top }]}>
         <Text style={styles.headerTitle}>Incoming audio call</Text>
       </View>
 
@@ -70,10 +108,10 @@ export default function AudioCallReceivingScreen() {
           )}
         </View>
         <Text style={styles.name}>{name}</Text>
-        <Text style={styles.status}>Calling you…</Text>
+        <Text style={styles.status}>Ringing…</Text>
       </View>
 
-      <View style={[styles.controls, { paddingBottom: insets.bottom + 24 }]}> 
+      <View style={[styles.controls, { paddingBottom: insets.bottom + 24 }]}>
         <TouchableOpacity style={[styles.controlBtn, styles.decline]} onPress={handleDecline}>
           <Icon name="call-end" size={28} color="#fff" />
         </TouchableOpacity>

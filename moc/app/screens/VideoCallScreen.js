@@ -1,17 +1,54 @@
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { RTCView } from 'react-native-webrtc';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
-import useCallSignalingHook from '../hooks/useCallSignaling';
+import useCallSession from '../hooks/useCallSession';
+
+const formatDuration = totalSeconds => {
+  const safeSeconds = Math.max(0, totalSeconds || 0);
+  const minutes = Math.floor(safeSeconds / 60)
+    .toString()
+    .padStart(2, '0');
+  const seconds = Math.floor(safeSeconds % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${minutes}:${seconds}`;
+};
+
+const getStatusText = (sessionState, role) => {
+  switch (sessionState) {
+    case 'outgoing_invite':
+      return 'Calling…';
+    case 'incoming_invite':
+      return 'Incoming video call…';
+    case 'ringing':
+      return role === 'caller' ? 'Ringing…' : 'Connecting…';
+    case 'connecting':
+      return 'Connecting…';
+    case 'connected':
+      return 'Connected';
+    case 'reconnecting':
+      return 'Reconnecting…';
+    case 'failed':
+      return 'Video call failed';
+    case 'ended':
+      return 'Call ended';
+    case 'idle':
+    default:
+      return role === 'callee' ? 'Connecting…' : 'Calling…';
+  }
+};
 
 export default function VideoCallScreen() {
   const router = useRouter();
@@ -21,139 +58,160 @@ export default function VideoCallScreen() {
   const pickParam = value => (Array.isArray(value) ? value[0] : value);
 
   const name = pickParam(params?.name) ?? 'Unknown';
+  const image = pickParam(params?.image);
   const callIdRaw = pickParam(params?.callId);
   const role = pickParam(params?.role) ?? 'caller';
   const callId = callIdRaw != null ? Number(callIdRaw) : null;
 
-  const [videoEnabled, setVideoEnabled] = useState(true);
   const [permission, requestPermission] = useCameraPermissions();
-  const [statusText, setStatusText] = useState(
-    role === 'callee' ? 'Connecting…' : 'Calling…',
-  );
-  const hasEndedRef = useRef(false);
-  const joinedCallRef = useRef(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const connectedAtRef = useRef(null);
+  const startHandledRef = useRef(false);
+  const closingRef = useRef(false);
 
-  const handleCallEvent = useCallback(
-    event => {
-      if (!event) {
-        return;
-      }
-
-      const eventCallId =
-        typeof event.callId === 'number' ? event.callId : Number(event.callId ?? callId);
-
-      if (callId && !Number.isNaN(eventCallId) && eventCallId !== callId) {
-        return;
-      }
-
-      switch (event.type) {
-        case 'call.ringing':
-          if (role === 'caller') {
-            setStatusText('Ringing…');
-          }
-          break;
-        case 'call.answer':
-        case 'call.join':
-          setStatusText('Connected');
-          break;
-        case 'call.decline':
-          if (!hasEndedRef.current) {
-            hasEndedRef.current = true;
-            Alert.alert('Call declined', 'The other participant declined the call.');
-            router.back();
-          }
-          break;
-        case 'call.end':
-        case 'call.fail':
-          if (!hasEndedRef.current) {
-            hasEndedRef.current = true;
-            router.back();
-          }
-          break;
-        default:
-          break;
-      }
-    },
-    [callId, role, router],
-  );
-
-  const { joinCall, leaveCall, endCall } = useCallSignalingHook({
+  const {
+    state: sessionState,
+    localStream,
+    remoteStream,
+    startOutgoing,
+    acceptIncoming,
+    endSession,
+    toggleMute,
+    toggleVideo,
+    isMuted,
+    isVideoEnabled,
+  } = useCallSession({
     callId,
-    onCallEvent: handleCallEvent,
+    isVideo: true,
+    isCallee: role === 'callee',
   });
 
   useEffect(() => {
     if (!permission?.granted) {
       requestPermission();
-    };
+    }
   }, [permission, requestPermission]);
 
   useEffect(() => {
-    if (!callId || Number.isNaN(callId) || joinedCallRef.current === callId) {
+    if (!callId || Number.isNaN(callId) || startHandledRef.current || !permission?.granted) {
       return;
     }
 
-    joinedCallRef.current = callId;
-    hasEndedRef.current = false;
+    startHandledRef.current = true;
+    const action = role === 'callee' ? acceptIncoming : startOutgoing;
 
-    if (role === 'callee') {
-      setStatusText('Connecting…');
+    action().catch(err => {
+      console.warn('Failed to initialize video call session', err);
+      Alert.alert('Call error', 'Unable to start this video call.');
+      router.back();
+    });
+  }, [acceptIncoming, callId, permission, role, router, startOutgoing]);
+
+  useEffect(() => {
+    if (sessionState === 'connected' && !connectedAtRef.current) {
+      connectedAtRef.current = Date.now();
+      return;
     }
 
-    joinCall(callId).catch(err => console.warn('Failed to join video call', err));
+    if (sessionState !== 'connected') {
+      connectedAtRef.current = null;
+      setElapsedSeconds(0);
+    }
+  }, [sessionState]);
 
-    return () => {
-      if (joinedCallRef.current === callId) {
-        joinedCallRef.current = null;
+  useEffect(() => {
+    if (sessionState !== 'connected' || !connectedAtRef.current) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      if (!connectedAtRef.current) {
+        return;
       }
-      leaveCall(callId).catch(err => console.warn('Failed to leave video call', err));
-    };
-  }, [callId, joinCall, leaveCall, role]);
+      setElapsedSeconds(Math.floor((Date.now() - connectedAtRef.current) / 1000));
+    }, 1000);
 
+    return () => clearInterval(intervalId);
+  }, [sessionState]);
 
-  const handleEnd = useCallback(async () => {
+  useEffect(() => {
+    if ((sessionState === 'ended' || sessionState === 'failed') && !closingRef.current) {
+      const timeoutId = setTimeout(() => {
+        router.back();
+      }, 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [router, sessionState]);
+
+  const statusText = useMemo(() => getStatusText(sessionState, role), [role, sessionState]);
+
+  const handleEnd = async () => {
+    closingRef.current = true;
     try {
-      if (callId && !Number.isNaN(callId)) {
-        hasEndedRef.current = true;
-        await endCall(callId);
-      }
+      await endSession();
     } catch (err) {
       console.warn('Failed to end video call', err);
     } finally {
       router.back();
     }
-  }, [callId, endCall, router]);
+  };
+
+  const remoteStreamUrl = remoteStream?.toURL?.();
+  const localStreamUrl = localStream?.toURL?.();
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.cameraContainer}>
-        {videoEnabled && permission?.granted ? (
-          <CameraView style={StyleSheet.absoluteFill} facing="front" />
+        {remoteStreamUrl ? (
+          <RTCView streamURL={remoteStreamUrl} style={styles.remoteVideo} objectFit="cover" />
         ) : (
-          <View style={[StyleSheet.absoluteFill, styles.placeholder]}>
-            <Icon name="videocam-off" size={100} color="#1f6ea7" />
+          <View style={[StyleSheet.absoluteFill, styles.remotePlaceholder]}>
+            {image ? (
+              <Image source={{ uri: image }} style={styles.remotePlaceholderImage} />
+            ) : (
+              <Icon name="person" size={96} color="#FFFFFF" />
+            )}
+            <Text style={styles.waitingName}>{name}</Text>
+            <Text style={styles.waitingText}>
+              {permission?.granted ? statusText : 'Waiting for camera permission…'}
+            </Text>
+          </View>
+        )}
+
+        {localStreamUrl && isVideoEnabled ? (
+          <RTCView
+            streamURL={localStreamUrl}
+            style={styles.localPreview}
+            objectFit="cover"
+            mirror
+          />
+        ) : (
+          <View style={styles.localPreviewPlaceholder}>
+            <Icon name={isVideoEnabled ? 'videocam' : 'videocam-off'} size={26} color="#fff" />
           </View>
         )}
 
         <View style={[styles.header, { paddingTop: insets.top }]}>
           <TouchableOpacity onPress={handleEnd} style={styles.backBtn}>
-            <Icon name="arrow-back" size={28} color="#1f6ea7" />
+            <Icon name="arrow-back" size={28} color="#fff" />
           </TouchableOpacity>
           <View style={styles.headerTextWrap}>
             <Text style={styles.headerTitle}>{name}</Text>
-            <Text style={styles.headerSubtitle}>{statusText}</Text>
+            <Text style={styles.headerSubtitle}>
+              {sessionState === 'connected' ? formatDuration(elapsedSeconds) : statusText}
+            </Text>
           </View>
         </View>
       </View>
 
       <View style={[styles.controls, { paddingBottom: insets.bottom + 16 }]}>
-        <TouchableOpacity style={styles.controlBtn}>
-          <Icon name="mic-off" size={28} color="#fff" />
+        <TouchableOpacity style={styles.controlBtn} onPress={toggleMute}>
+          <Icon name={isMuted ? 'mic-off' : 'mic'} size={28} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlBtn} onPress={() => setVideoEnabled(v => !v)}>
-          <Icon name={videoEnabled ? 'videocam' : 'videocam-off'} size={28} color="#fff" />
+        <TouchableOpacity style={styles.controlBtn} onPress={toggleVideo}>
+          <Icon name={isVideoEnabled ? 'videocam' : 'videocam-off'} size={28} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.controlBtn}>
+        <TouchableOpacity style={[styles.controlBtn, styles.disabledControlBtn]} activeOpacity={0.8}>
           <Icon name="volume-up" size={28} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity style={[styles.controlBtn, styles.endCall]} onPress={handleEnd}>
@@ -167,16 +225,55 @@ export default function VideoCallScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#E5F4FF',
+    backgroundColor: '#05070A',
   },
   cameraContainer: {
     flex: 8,
     backgroundColor: '#000',
   },
-  placeholder: {
+  remoteVideo: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  remotePlaceholder: {
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#E5F4FF',
+    backgroundColor: '#0F172A',
+    gap: 12,
+  },
+  remotePlaceholderImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  waitingName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  waitingText: {
+    fontSize: 15,
+    color: '#CBD5E1',
+  },
+  localPreview: {
+    position: 'absolute',
+    right: 16,
+    top: 90,
+    width: 120,
+    height: 180,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#111827',
+  },
+  localPreviewPlaceholder: {
+    position: 'absolute',
+    right: 16,
+    top: 90,
+    width: 120,
+    height: 180,
+    borderRadius: 18,
+    backgroundColor: '#111827',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   header: {
     position: 'absolute',
@@ -195,12 +292,11 @@ const styles = StyleSheet.create({
     marginRight: 28,
   },
   headerTitle: {
-    flex: 1,
     textAlign: 'center',
     fontSize: 18,
     fontWeight: '600',
     color: '#fff',
-    },
+  },
   headerSubtitle: {
     marginTop: 2,
     textAlign: 'center',
@@ -213,7 +309,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-evenly',
     alignItems: 'center',
     paddingHorizontal: 24,
-    backgroundColor: '#E5F4FF',
+    backgroundColor: '#05070A',
   },
   controlBtn: {
     width: 56,
@@ -222,6 +318,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#1f6ea7',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  disabledControlBtn: {
+    opacity: 0.65,
   },
   endCall: {
     backgroundColor: '#E53935',

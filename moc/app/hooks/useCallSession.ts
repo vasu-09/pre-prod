@@ -4,16 +4,16 @@ import { MediaStream, RTCPeerConnection } from 'react-native-webrtc';
 import apiClient from '../services/apiClient';
 import { CallCandidatePayload, CallSignalEvent, TurnCredentials } from '../services/callSignaling';
 import {
-    addLocalTracks,
-    addRemoteCandidate,
-    applyRemoteAnswer,
-    applyRemoteOffer,
-    createLocalStream,
-    createPeer,
-    disposePeer,
-    makeAnswer,
-    makeOffer,
-    normalizeTurnCredentials,
+  addLocalTracks,
+  addRemoteCandidate,
+  applyRemoteAnswer,
+  applyRemoteOffer,
+  createLocalStream,
+  createPeer,
+  disposePeer,
+  makeAnswer,
+  makeOffer,
+  normalizeTurnCredentials,
 } from '../services/webrtcService';
 import { useCallSignaling as useCallSignalingHook } from './useCallSignaling';
 
@@ -52,17 +52,19 @@ export const useCallSession = ({
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [turnCredentials, setTurnCredentials] = useState<TurnCredentials | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(isVideo);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const callEventHandlerRef = useRef<(event: CallSignalEvent) => void>(() => {});
 
   const {
     joinCall,
-    markRinging,
     leaveCall,
     sendOffer,
     answerCall,
     sendCandidate,
+    endCall,
   } = useCallSignalingHook({
     roomId,
     callId: callId ?? undefined,
@@ -71,10 +73,40 @@ export const useCallSession = ({
     onTurnCredentials: credentials => setTurnCredentials(credentials),
   });
 
+  const cleanupSessionResources = useCallback(() => {
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch {
+          // ignore track cleanup failure
+        }
+      });
+    }
+
+    if (remoteStream) {
+      remoteStream.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch {
+          // ignore track cleanup failure
+        }
+      });
+    }
+
+    disposePeer(pcRef.current);
+    pcRef.current = null;
+    setLocalStream(null);
+    setRemoteStream(null);
+    setIsMuted(false);
+    setIsVideoEnabled(isVideo);
+  }, [isVideo, localStream, remoteStream]);
+
   const ensureTurnCredentials = useCallback(async () => {
     if (turnCredentials) {
       return turnCredentials;
     }
+
     const response = await apiClient.get('/api/calls/turn');
     const creds = response?.data ?? null;
     setTurnCredentials(creds);
@@ -97,12 +129,24 @@ export const useCallSession = ({
         await sendCandidate(candidate, callId);
       },
       onConnectionStateChange: connectionState => {
+        if (connectionState === 'connecting') {
+          setState(prev => (prev === 'connected' ? prev : 'connecting'));
+          return;
+        }
         if (connectionState === 'connected') {
           setState('connected');
-        } else if (connectionState === 'failed') {
+          return;
+        }
+        if (connectionState === 'failed') {
           setState('failed');
-        } else if (connectionState === 'disconnected') {
+          return;
+        }
+        if (connectionState === 'disconnected') {
           setState('reconnecting');
+          return;
+        }
+        if (connectionState === 'closed') {
+          setState('ended');
         }
       },
     });
@@ -111,6 +155,8 @@ export const useCallSession = ({
     await addLocalTracks(pc, stream);
 
     setLocalStream(stream);
+    setIsMuted(false);
+    setIsVideoEnabled(isVideo);
     pcRef.current = pc;
     return pc;
   }, [callId, ensureTurnCredentials, isVideo, sendCandidate]);
@@ -122,6 +168,7 @@ export const useCallSession = ({
       }
 
       const eventType = event.type ?? event.event;
+
       if (eventType === 'call.invite') {
         onIncomingInvite?.(event);
         setState('incoming_invite');
@@ -129,7 +176,12 @@ export const useCallSession = ({
       }
 
       if (eventType === 'call.ringing') {
-        setState('ringing');
+        setState(prev => (prev === 'connected' ? prev : 'ringing'));
+        return;
+      }
+
+      if (eventType === 'call.join') {
+        setState(prev => (prev === 'connected' ? prev : 'connecting'));
         return;
       }
 
@@ -158,15 +210,18 @@ export const useCallSession = ({
         return;
       }
 
-      if (eventType === 'call.end') {
+      if (eventType === 'call.decline' || eventType === 'call.end') {
+        cleanupSessionResources();
         setState('ended');
+        return;
       }
 
       if (eventType === 'call.fail') {
+        cleanupSessionResources();
         setState('failed');
       }
     },
-    [answerCall, callId, ensurePeer, onIncomingInvite],
+    [answerCall, callId, cleanupSessionResources, ensurePeer, onIncomingInvite],
   );
 
   useEffect(() => {
@@ -181,6 +236,7 @@ export const useCallSession = ({
     if (!callId) {
       throw new Error('callId is required to start call session');
     }
+
     setState('outgoing_invite');
     const pc = await ensurePeer();
     await joinCall(callId);
@@ -195,37 +251,70 @@ export const useCallSession = ({
     if (!callId) {
       throw new Error('callId is required to accept call session');
     }
+
     await ensurePeer();
     await joinCall(callId);
     if (isCallee) {
-      await markRinging(callId);
+      setState('connecting');
+    } else {
+      setState('connecting');
     }
-    setState('connecting');
-  }, [callId, ensurePeer, isCallee, joinCall, markRinging]);
+  }, [callId, ensurePeer, isCallee, joinCall]);
+
+  const toggleMute = useCallback(() => {
+    if (!localStream) {
+      return;
+    }
+
+    const nextMuted = !isMuted;
+    localStream.getAudioTracks().forEach(track => {
+      track.enabled = !nextMuted;
+    });
+    setIsMuted(nextMuted);
+  }, [isMuted, localStream]);
+
+  const toggleVideo = useCallback(() => {
+    if (!isVideo || !localStream) {
+      return;
+    }
+
+    const nextEnabled = !isVideoEnabled;
+    localStream.getVideoTracks().forEach(track => {
+      track.enabled = nextEnabled;
+    });
+    setIsVideoEnabled(nextEnabled);
+  }, [isVideo, isVideoEnabled, localStream]);
 
   const endSession = useCallback(async () => {
-    if (callId) {
-      await leaveCall(callId);
+    try {
+      if (callId) {
+        await endCall(callId);
+      }
+    } finally {
+      cleanupSessionResources();
+      setState('ended');
     }
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
+  }, [callId, cleanupSessionResources, endCall]);
+
+  const disposeSession = useCallback(async () => {
+    try {
+      if (callId) {
+        await leaveCall(callId);
+      }
+    } catch (err) {
+      console.warn('Failed to leave call session cleanly', err);
+    } finally {
+      cleanupSessionResources();
     }
-    if (remoteStream) {
-      remoteStream.getTracks().forEach(track => track.stop());
-    }
-    disposePeer(pcRef.current);
-    pcRef.current = null;
-    setLocalStream(null);
-    setRemoteStream(null);
-    setState('ended');
-  }, [callId, leaveCall, localStream, remoteStream]);
+  }, [callId, cleanupSessionResources, leaveCall]);
 
   useEffect(() => {
     return () => {
-      disposePeer(pcRef.current);
-      pcRef.current = null;
+      disposeSession().catch(err => {
+        console.warn('Failed to dispose call session', err);
+      });
     };
-  }, []);
+  }, [disposeSession]);
 
   return useMemo(
     () => ({
@@ -233,19 +322,29 @@ export const useCallSession = ({
       localStream,
       remoteStream,
       turnCredentials,
+      isMuted,
+      isVideoEnabled,
       ensureTurnCredentials,
       startOutgoing,
       acceptIncoming,
       endSession,
+      disposeSession,
+      toggleMute,
+      toggleVideo,
     }),
     [
       acceptIncoming,
+      disposeSession,
       endSession,
       ensureTurnCredentials,
+      isMuted,
+      isVideoEnabled,
       localStream,
       remoteStream,
       startOutgoing,
       state,
+      toggleMute,
+      toggleVideo,
       turnCredentials,
     ],
   );
