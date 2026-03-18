@@ -11,8 +11,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 
@@ -62,9 +60,9 @@ public class MessagePagingService {
     public PageDto pageForward(Long roomId, Long userId, String deviceId, String cursor, int limit) {
         java.util.AbstractMap.SimpleEntry<Instant, Long> c =
                 (cursor == null) ? null : MessageCursor.decode(cursor);
-        Timestamp ts = (c == null) ? new Timestamp(0) : Timestamp.from(c.getKey());
+        Instant ts = (c == null) ? Instant.EPOCH : c.getKey();
         Long id = (c == null) ? 0L : c.getValue();
-        Timestamp cutoff = Timestamp.from(cutoffFor(userId, deviceId));
+        Instant cutoff = cutoffFor(userId, deviceId);
 
         List<ChatMessage> rows = repo.pageForwardVisible(roomId, cutoff, ts, id, limit + 1);
         boolean hasMore = rows.size() > limit;
@@ -79,8 +77,8 @@ public class MessagePagingService {
     public PageDto pageBackward(Long roomId, Long userId, String deviceId, String cursor, int limit) {
         if (cursor == null) throw new IllegalArgumentException("cursor required for backward paging");
         java.util.AbstractMap.SimpleEntry<Instant, Long> c = MessageCursor.decode(cursor);
-        Timestamp cutoff = Timestamp.from(cutoffFor(userId, deviceId));
-        List<ChatMessage> rows = repo.pageBackwardVisible(roomId, cutoff, Timestamp.from(c.getKey()), c.getValue(), limit + 1);
+        Instant cutoff = cutoffFor(userId, deviceId);
+        List<ChatMessage> rows = repo.pageBackwardVisible(roomId, cutoff, c.getKey(), c.getValue(), limit + 1);
         boolean hasMore = rows.size() > limit;
         if (hasMore) rows = rows.subList(0, limit);
         // we fetched DESC; return ASC

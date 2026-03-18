@@ -9,11 +9,14 @@ import com.om.Real_Time_Communication.dto.OneTimePrekeyDto;
 import com.om.Real_Time_Communication.dto.SessionRecoveryRequest;
 import com.om.Real_Time_Communication.models.E2eeOneTimePrekey;
 import com.om.Real_Time_Communication.security.Ed25519Verifier;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import io.micrometer.common.lang.Nullable;
 import org.slf4j.Logger;
 import java.util.HexFormat;
 import org.slf4j.LoggerFactory;
@@ -26,14 +29,18 @@ public class E2eeDeviceService {
 
     private final E2eeDeviceRepository deviceRepo;
     private final E2eeOneTimePrekeyRepository prekeyRepo;
+    @Autowired
+    private @Nullable StringRedisTemplate redis;
 
     public E2eeDeviceService(E2eeDeviceRepository deviceRepo, E2eeOneTimePrekeyRepository prekeyRepo) {
-        this.deviceRepo = deviceRepo; this.prekeyRepo = prekeyRepo;
+        this.deviceRepo = deviceRepo; 
+        this.prekeyRepo = prekeyRepo;
     }
 
     /** Register/refresh a device bundle and upload optional batch of OTKs. */
     @Transactional
     public boolean register(Long userId, RegisterDto dto) {
+        backfillLegacyRows();
         require(dto.getDeviceId() != null && !dto.getDeviceId().isBlank(), "deviceId required");
         require(dto.getIdentityKeyPub()!=null && dto.getIdentityKeyPub().length==32, "identityKeyPub invalid");
         require(dto.getSignedPrekeyPub()!=null && dto.getSignedPrekeyPub().length==32, "signedPrekeyPub invalid");
@@ -82,6 +89,10 @@ public class E2eeDeviceService {
         dev.setSignedPrekeySig(dto.getSignedPrekeySig());
         dev.setLastSeen(now);
         deviceRepo.save(dev);
+
+        if (keyChanged || !existing) {
+            evictUserRoomCache(userId, dto.getDeviceId());
+        }
 
         if (keyChanged) {
             prekeyRepo.deleteByUserIdAndDeviceId(userId, dto.getDeviceId());
@@ -138,7 +149,7 @@ public class E2eeDeviceService {
     /** List device bundles (without consuming OTKs). */
     @Transactional(readOnly = true)
     public List<DeviceBundleDto> listBundles(Long targetUserId) {
-        var devs = deviceRepo.findByUserId(targetUserId);
+        var devs = deviceRepo.findByUserIdAndStatusIgnoreCase(targetUserId, "ACTIVE");
         var out = new ArrayList<DeviceBundleDto>(devs.size());
         for (var d : devs) {
             out.add(new DeviceBundleDto(d.getDeviceId(), d.getIdentityKeyPub(), d.getSignedPrekeyPub(), d.getSignedPrekeySig(), null,null));
@@ -178,6 +189,16 @@ public class E2eeDeviceService {
         return claimOneTimePrekey(req.getTargetUserId(), req.getTargetDeviceId());
     }
 
+
+    @Transactional
+    public int backfillLegacyRows() {
+        int updated = deviceRepo.backfillLegacyRows(Instant.now());
+        if (updated > 0) {
+            log.info("E2EE backfilled {} legacy device rows", updated);
+        }
+        return updated;
+    }
+
     @Transactional(readOnly = true)
     public E2eeDevice requireActiveDevice(Long userId, String deviceId) {
         require(deviceId != null && !deviceId.isBlank(), "deviceId required");
@@ -194,6 +215,13 @@ public class E2eeDeviceService {
         return prekeyRepo.countByUserIdAndDeviceIdAndConsumedFalse(userId, deviceId);
     }
 
+    private void evictUserRoomCache(Long userId, String deviceId) {
+        if (redis == null) {
+            return;
+        }
+        redis.delete("user:rooms:" + userId + ":" + deviceId);
+    }
+    
     private static void require(boolean cond, String msg) {
         if (!cond) throw new IllegalArgumentException(msg);
     }

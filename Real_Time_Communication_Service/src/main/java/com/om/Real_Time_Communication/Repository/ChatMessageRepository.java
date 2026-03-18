@@ -2,13 +2,10 @@ package com.om.Real_Time_Communication.Repository;
 
 import com.om.Real_Time_Communication.models.ChatMessage;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -18,45 +15,44 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     Optional<ChatMessage> findByRoomIdAndMessageId(Long roomId, String messageId);
     Optional<ChatMessage> findByMessageId(String messageId);
 
-
     @Query(value =
             "SELECT * FROM chat_message " +
                     "WHERE room_id = :roomId " +
-                    "  AND (created_at > :cursorCreatedAt " +
-                    "       OR (created_at = :cursorCreatedAt AND id > :cursorId)) " +
-                    "ORDER BY created_at ASC, id ASC " +
+                    "  AND (server_ts > :cursorTs " +
+                    "       OR (server_ts = :cursorTs AND id > :cursorId)) " +
+                    "ORDER BY server_ts ASC, id ASC " +
                     "LIMIT :limit",
             nativeQuery = true)
     List<ChatMessage> pageForward(@Param("roomId") Long roomId,
-                                  @Param("cursorCreatedAt") Timestamp cursorCreatedAt,
+                                  @Param("cursorTs") Instant cursorTs,
                                   @Param("cursorId") Long cursorId,
                                   @Param("limit") int limit);
 
     @Query(value =
             "SELECT * FROM chat_message " +
                     "WHERE room_id = :roomId " +
-                    "  AND (created_at < :cursorCreatedAt " +
-                    "       OR (created_at = :cursorCreatedAt AND id < :cursorId)) " +
-                    "ORDER BY created_at DESC, id DESC " +
+                    "  AND (server_ts < :cursorTs " +
+                    "       OR (server_ts = :cursorTs AND id < :cursorId)) " +
+                    "ORDER BY server_ts DESC, id DESC " +
                     "LIMIT :limit",
             nativeQuery = true)
     List<ChatMessage> pageBackward(@Param("roomId") Long roomId,
-                                   @Param("cursorCreatedAt") Timestamp cursorCreatedAt,
+                                  @Param("cursorTs") Instant cursorTs,
                                    @Param("cursorId") Long cursorId,
                                    @Param("limit") int limit);
 
-         @Query(value =
+    @Query(value =
             "SELECT * FROM chat_message " +
                     "WHERE room_id = :roomId " +
                     "  AND server_ts > :cutoff " +
-                    "  AND (created_at > :cursorCreatedAt " +
-                    "       OR (created_at = :cursorCreatedAt AND id > :cursorId)) " +
-                    "ORDER BY created_at ASC, id ASC " +
+                    "  AND (server_ts > :cursorTs " +
+                    "       OR (server_ts = :cursorTs AND id > :cursorId)) " +
+                    "ORDER BY server_ts ASC, id ASC " +
                     "LIMIT :limit",
             nativeQuery = true)
     List<ChatMessage> pageForwardVisible(@Param("roomId") Long roomId,
-                                         @Param("cutoff") Timestamp cutoff,
-                                         @Param("cursorCreatedAt") Timestamp cursorCreatedAt,
+                                         @Param("cutoff") Instant cutoff,
+                                         @Param("cursorTs") Instant cursorTs,
                                          @Param("cursorId") Long cursorId,
                                          @Param("limit") int limit);
 
@@ -64,18 +60,17 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             "SELECT * FROM chat_message " +
                     "WHERE room_id = :roomId " +
                     "  AND server_ts > :cutoff " +
-                    "  AND (created_at < :cursorCreatedAt " +
-                    "       OR (created_at = :cursorCreatedAt AND id < :cursorId)) " +
-                    "ORDER BY created_at DESC, id DESC " +
+                    "  AND (server_ts < :cursorTs " +
+                    "       OR (server_ts = :cursorTs AND id < :cursorId)) " +
+                    "ORDER BY server_ts DESC, id DESC " +
                     "LIMIT :limit",
             nativeQuery = true)
     List<ChatMessage> pageBackwardVisible(@Param("roomId") Long roomId,
-                                          @Param("cutoff") Timestamp cutoff,
-                                          @Param("cursorCreatedAt") Timestamp cursorCreatedAt,
+                                          @Param("cutoff") Instant cutoff,
+                                          @Param("cursorTs") Instant cursorTs,
                                           @Param("cursorId") Long cursorId,
                                           @Param("limit") int limit);
 
-    // newest N (when no cursor provided)
     @Query("""
       select m from ChatMessage m
       where m.roomId = :roomId
@@ -83,8 +78,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
     """)
     List<ChatMessage> newest(@Param("roomId") Long roomId, org.springframework.data.domain.Pageable pageable);
 
-
-        @Query("""
+    @Query("""
       select m from ChatMessage m
       where m.roomId = :roomId
         and m.serverTs > :cutoff
@@ -95,7 +89,6 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
                                     org.springframework.data.domain.Pageable pageable);
 
 
-    // page backward (older): (ts,id) < (beforeTs,beforeId)
     @Query("""
       select m from ChatMessage m
       where m.roomId = :roomId
@@ -109,7 +102,7 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             org.springframework.data.domain.Pageable pageable
     );
 
-        @Query("""
+    @Query("""
       select m from ChatMessage m
       where m.roomId = :roomId
         and m.serverTs > :cutoff
@@ -123,5 +116,4 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
             @Param("beforeId") Long beforeId,
             org.springframework.data.domain.Pageable pageable
     );
-
 }

@@ -170,6 +170,15 @@ public class MessageService {
                     .orElseThrow(() -> new RuntimeException("Duplicate detected but message not found"));
         }
 
+        if (membership != null) {
+            java.util.List<Long> participants = membership.memberIds(roomId);
+            for (Long participantId : participants) {
+                if (participantId != null) {
+                    membership.evictUserRooms(participantId);
+                }
+            }
+        }
+
         // 6) Fire notification to other members (don’t fail the write if notify breaks)
         try {
             if (eventPublisher != null && membership != null) {

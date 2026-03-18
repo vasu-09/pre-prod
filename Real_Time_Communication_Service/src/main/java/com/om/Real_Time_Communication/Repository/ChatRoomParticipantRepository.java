@@ -57,6 +57,19 @@ public interface ChatRoomParticipantRepository extends JpaRepository<ChatRoomPar
                        @Param("messageId") String messageId);
 
     @Query("""
+        select case when count(m) > 0 then true else false end
+          from ChatRoomParticipant p
+          join ChatMessage m on m.roomId = p.chatRoom.id
+         where p.userId = :userId
+           and p.chatRoom.id = :roomId
+           and (p.hidden = false or p.hidden is null)
+           and m.serverTs > :cutoff
+    """)
+    boolean existsVisibleToDevice(@Param("userId") Long userId,
+                                  @Param("roomId") Long roomId,
+                                  @Param("cutoff") java.time.Instant cutoff);
+                                  
+    @Query("""
         select p.chatRoom.id
           from ChatRoomParticipant p
           join ChatMessage m on m.roomId = p.chatRoom.id

@@ -23,11 +23,10 @@ public class SearchController {
 
     @GetMapping
     public java.util.List<SearchMessageDoc> searchAll(Principal principal,
-                                                      @RequestHeader(value = "X-Device-Id", required = false) String deviceIdHeader,
                                                       @RequestParam String q,
                                                       @RequestParam(defaultValue = "50") int limit) {
         Long userId = Long.valueOf(principal.getName());
-        String deviceId = resolveDeviceId(principal, deviceIdHeader);
+        String deviceId = resolveDeviceId(principal);
         var roomIds = membership.roomsForUser(userId, deviceId);
         return searchService.searchAll(userId, roomIds, q, limit);
     }
@@ -38,19 +37,22 @@ public class SearchController {
                                @RequestParam String q,
                                @RequestParam(defaultValue = "50") int limit) {
         Long userId = Long.valueOf(principal.getName());
-        if (!membership.isMember(userId, roomId)) throw new IllegalArgumentException("Forbidden");
-        return searchService.searchInRoomMvp(roomId, q, limit);
+        String deviceId = resolveDeviceId(principal);
+
+        if (!membership.isVisibleToDevice(userId, deviceId, roomId)) {
+            throw new IllegalArgumentException("Forbidden");
+        }
+
+        var cutoff = membership.historyVisibleFrom(userId, deviceId);
+        return searchService.searchInRoomMvpVisible(roomId, q, limit, cutoff);
     }
 
-    private String resolveDeviceId(Principal principal, String fallbackHeader) {
+    private String resolveDeviceId(Principal principal) {
         if (principal instanceof JwtAuthenticationToken jwtAuth) {
             Object claimDeviceId = jwtAuth.getToken().getClaim("deviceId");
             if (claimDeviceId instanceof String asString && !asString.isBlank()) {
                 return asString;
             }
-        }
-        if (fallbackHeader != null && !fallbackHeader.isBlank()) {
-            return fallbackHeader;
         }
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Authenticated device id is missing");
     }

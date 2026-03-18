@@ -60,6 +60,15 @@ public class RoomMembershipService {
         return list;
     }
 
+    public java.time.Instant historyVisibleFrom(Long userId, String deviceId) {
+        return deviceService.requireActiveDevice(userId, deviceId).getHistoryVisibleFrom();
+    }
+
+    public boolean isVisibleToDevice(Long userId, String deviceId, Long roomId) {
+        var cutoff = historyVisibleFrom(userId, deviceId);
+        return repo.existsVisibleToDevice(userId, roomId, cutoff);
+    }
+    
     public void evictUserRooms(Long userId, String deviceId) {
         if (redis != null) {
             redis.delete(kUserRooms(userId, deviceId));

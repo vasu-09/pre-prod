@@ -1,9 +1,8 @@
 package com.om.Real_Time_Communication.service;
 
 import co.elastic.clients.elasticsearch._types.FieldValue;
+import com.om.Real_Time_Communication.Repository.ChatMessageRepository;
 import com.om.Real_Time_Communication.dto.SearchMessageDoc;
-import io.micrometer.common.lang.Nullable;
-import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.elasticsearch.client.elc.NativeQuery;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
@@ -13,21 +12,25 @@ import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-@Service
+import java.time.Instant;
 
+@Service
 public class SearchService {
     private final ElasticsearchOperations es;
-    private final org.springframework.data.redis.core.StringRedisTemplate redis;
+    private final StringRedisTemplate redis;
+    private final ChatMessageRepository chatMessageRepository;
 
-    public SearchService(ElasticsearchOperations es, StringRedisTemplate redis) {
+    public SearchService(ElasticsearchOperations es,
+                         StringRedisTemplate redis,
+                         ChatMessageRepository chatMessageRepository) {
         this.es = es;
         this.redis = redis;
+        this.chatMessageRepository = chatMessageRepository;
     }
 
     public java.util.List<SearchMessageDoc> searchAll(Long userId, java.util.List<Long> roomIds, String query, int limit) {
         if (roomIds == null || roomIds.isEmpty()) return java.util.List.of();
 
-        // build terms values for roomIds
         java.util.List<FieldValue> roomVals = roomIds.stream()
                 .map(id -> FieldValue.of(id.toString()))
                 .toList();
@@ -47,7 +50,7 @@ public class SearchService {
         return hits.get().map(SearchHit::getContent).toList();
     }
 
-    public java.util.List<RecentHit> searchInRoomMvp(Long roomId, String query, int limit) {
+    public java.util.List<RecentHit> searchInRoomMvpVisible(Long roomId, String query, int limit, Instant cutoff) {
         String zKey = "room:idx:" + roomId;
         var ids = redis.opsForZSet().reverseRange(zKey, 0, 2000);
         if (ids == null || ids.isEmpty()) return java.util.List.of();
@@ -55,6 +58,10 @@ public class SearchService {
         String q = (query == null) ? "" : query.toLowerCase(java.util.Locale.ROOT);
         java.util.List<RecentHit> out = new java.util.ArrayList<>();
         for (String mid : ids) {
+            var maybeMsg = chatMessageRepository.findByRoomIdAndMessageId(roomId, mid);
+            if (maybeMsg.isEmpty() || !maybeMsg.get().getServerTs().isAfter(cutoff)) {
+                continue;
+            }
             String body = redis.opsForValue().get("msg:body:" + mid);
             if (body == null) continue;
             if (q.isBlank() || body.toLowerCase(java.util.Locale.ROOT).contains(q)) {
