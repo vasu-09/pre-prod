@@ -45,6 +45,7 @@ seedPrng();
 
 const SHARED_KEY_PREFIX = 'chat.sharedKey:';
 const SHARED_KEY_SALT_PREFIX = 'chat.sharedKeySalt:';
+const SHARED_KEY_INDEX_KEY = 'chat.sharedKeyIndex';
 const PBKDF2_ITERATIONS = 150_000;
 
 const sharedKeyStorage: StorageHandler = Platform.OS === 'web'
@@ -64,6 +65,32 @@ const sharedKeyStorage: StorageHandler = Platform.OS === 'web'
 
 const getStorageKey = (roomKey: string) => `${SHARED_KEY_PREFIX}${normalizeSecureStoreKey(roomKey)}`;
 const getSalt = (roomKey: string) => `${SHARED_KEY_SALT_PREFIX}${normalizeSecureStoreKey(roomKey)}`;
+
+const getTrackedRoomKeys = async (): Promise<string[]> => {
+  const raw = await AsyncStorage.getItem(SHARED_KEY_INDEX_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((value): value is string => typeof value === 'string');
+  } catch {
+    return [];
+  }
+};
+
+const trackRoomKey = async (roomKey: string): Promise<void> => {
+  const normalized = normalizeSecureStoreKey(roomKey);
+  const current = await getTrackedRoomKeys();
+  if (current.includes(normalized)) {
+    return;
+  }
+  await AsyncStorage.setItem(SHARED_KEY_INDEX_KEY, JSON.stringify([...current, normalized]));
+};
 
 const deriveWithSubtle = async (secret: string, salt: string) => {
   const textEncoder = new TextEncoder();
@@ -117,11 +144,38 @@ export const ensureSharedRoomKey = async (roomKey: string): Promise<string> => {
   const storageKey = getStorageKey(roomKey);
   const existing = await sharedKeyStorage.getItem(storageKey);
   if (existing) {
+    await trackRoomKey(roomKey);
     return existing;
   }
   const derived = await deriveSharedKey(roomKey);
   await sharedKeyStorage.setItem(storageKey, derived);
+  await trackRoomKey(roomKey);
   return derived;
+};
+
+export const clearChatCryptoState = async (): Promise<void> => {
+  const trackedRoomKeys = await getTrackedRoomKeys();
+  const normalizedKeys = new Set(trackedRoomKeys.map(value => normalizeSecureStoreKey(value)));
+
+  if (Platform.OS === 'web') {
+    const allKeys = await AsyncStorage.getAllKeys();
+    allKeys.forEach(key => {
+      if (key.startsWith(SHARED_KEY_PREFIX)) {
+        normalizedKeys.add(key.slice(SHARED_KEY_PREFIX.length));
+      } else if (key.startsWith(SHARED_KEY_SALT_PREFIX)) {
+        normalizedKeys.add(key.slice(SHARED_KEY_SALT_PREFIX.length));
+      }
+    });
+  }
+
+  await Promise.all(
+    Array.from(normalizedKeys).flatMap(normalizedRoomKey => [
+      sharedKeyStorage.removeItem(`${SHARED_KEY_PREFIX}${normalizedRoomKey}`),
+      sharedKeyStorage.removeItem(`${SHARED_KEY_SALT_PREFIX}${normalizedRoomKey}`),
+    ]),
+  );
+
+  await AsyncStorage.removeItem(SHARED_KEY_INDEX_KEY);
 };
 
 export const decryptMessage = async (

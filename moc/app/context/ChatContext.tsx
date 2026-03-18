@@ -12,6 +12,7 @@ import {
   upsertConversationInDb,
 } from '../services/database';
 import { getE2EEClient } from '../services/e2ee';
+import { clearChatCryptoState } from '../services/messageCrypto';
 import { fetchPendingMessages } from '../services/messagesService';
 import { syncPushTokenWithBackend } from '../services/pushRegistration';
 import stompClient from '../services/stompClient';
@@ -227,17 +228,18 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
         if (cancelled) return;
 
         const normalizedUserId = String(currentUserId);
-        const deviceChanged =
-          Boolean(authDeviceId) &&
-          Boolean(storedDeviceId) &&
-          String(authDeviceId) !== String(storedDeviceId);
+        if (!authDeviceId) {
+          setRooms([]);
+          return;
+        }
 
-        const userChanged =
-          Boolean(storedUserId) &&
-          String(storedUserId) !== normalizedUserId;
+        const hasStoredSessionMarker = Boolean(storedDeviceId) || Boolean(storedUserId);
+        const deviceChanged = String(storedDeviceId ?? '') !== String(authDeviceId);
+        const userChanged = String(storedUserId ?? '') !== normalizedUserId;
 
-        if (deviceChanged || userChanged) {
+        if (hasStoredSessionMarker && (deviceChanged || userChanged)) {
           await clearChatState();
+          await clearChatCryptoState();
           if (cancelled) return;
           setRooms([]);
         }
