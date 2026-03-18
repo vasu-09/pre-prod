@@ -333,6 +333,9 @@ public class CallSessionService {
 
         Instant now = Instant.now(clock);
         cs.setEndedAt(now);
+        Instant durationStart = cs.getAnsweredAt() != null
+                ? cs.getAnsweredAt()
+                : (cs.getRingingAt() != null ? cs.getRingingAt() : cs.getCreatedAt());
         if (cs.getCreatedAt() != null) {
             cs.setDuration(Duration.between(cs.getRingingAt(), now).getSeconds());
         }
