@@ -233,9 +233,7 @@ export const useChatSession = ({
   const typingSentRef = useRef(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionsRef = useRef<(() => void)[]>([]);
-  const deviceIdRef = useRef<string>(
-    globalThis.crypto?.randomUUID?.() ?? `mobile-${Date.now()}`,
-  );
+  const deviceIdRef = useRef<string | null>(null);
 
   const toDbRecord = useCallback(
     (
@@ -516,6 +514,10 @@ export const useChatSession = ({
       .then(client => {
         if (!cancelled) {
           setE2eeClient(client);
+          deviceIdRef.current =
+            typeof client.getDeviceId === 'function'
+              ? String(client.getDeviceId() ?? '') || null
+              : null;
           if (SHOULD_LOG_E2EE) {
             console.debug('[CHAT][E2EE] client ready', {
               deviceId: typeof client.getDeviceId === 'function' ? client.getDeviceId() : undefined,
@@ -532,6 +534,7 @@ export const useChatSession = ({
         }
         if (!cancelled) {
           setE2eeClient(null);
+          deviceIdRef.current = null;
         }
       })
       .finally(() => {
@@ -641,33 +644,38 @@ export const useChatSession = ({
               keyRef: dto.keyRef,
             };
             const fromSelf = currentUserId != null && dto.senderId === currentUserId;
+
             if (client) {
               try {
-                  text = await client.decryptEnvelope(envelope, Boolean(fromSelf), {
+                text = await client.decryptEnvelope(envelope, Boolean(fromSelf), {
                   senderId: dto.senderId,
                   sessionId: dto.keyRef ?? null,
                   senderDeviceId: dto.senderDeviceId ?? null,
                 });
               } catch (decryptErr) {
                 console.warn('Failed to decrypt history message', decryptErr);
-                text = dto.body ?? DECRYPTION_PENDING_MESSAGE;
-                failed = dto.body == null;
-                debugBody = dto.body ?? null;
+                text = DECRYPTION_PENDING_MESSAGE;
+                failed = true;
+                debugBody = null;
               }
             } else {
-              text = dto.body ?? null;
+              text = DECRYPTION_PENDING_MESSAGE;
+              failed = true;
+              debugBody = null;
             }
           } else if (dto.e2ee && encryptedPayload && sharedRoomKey) {
             try {
               text = await decryptMessage(encryptedPayload, sharedRoomKey);
             } catch (decryptErr) {
               console.warn('Failed to decrypt symmetric history message', decryptErr);
-              text = dto.body ?? DECRYPTION_PENDING_MESSAGE;
-              failed = dto.body == null;
-              debugBody = dto.body ?? null;
+              text = DECRYPTION_PENDING_MESSAGE;
+              failed = true;
+              debugBody = null;
             }
           } else if (dto.e2ee && encryptedPayload) {
-            text = dto.body ?? null;
+            text = DECRYPTION_PENDING_MESSAGE;
+            failed = true;
+            debugBody = null;
           }
           return {
             ...base,
@@ -707,20 +715,27 @@ export const useChatSession = ({
           );
         }
       }
-      const last = ordered[ordered.length - 1];
-      if (last && resolvedRoomKey) {
-        latestMessageIdRef.current = last.messageId;
+      const lastVisible = visibleMessages[visibleMessages.length - 1];
+      if (lastVisible && resolvedRoomKey) {
+        latestMessageIdRef.current = lastVisible.messageId;
         updateRoomActivity(resolvedRoomKey, {
-          messageId: last.messageId,
-          text: last.body ?? 'Encrypted message',
-          at: last.serverTs ?? new Date().toISOString(),
-          senderId: last.senderId,
+          messageId: lastVisible.messageId,
+          text: lastVisible.body ?? null,
+          at: lastVisible.serverTs ?? new Date().toISOString(),
+          senderId: lastVisible.senderId ?? undefined,
         });
       }
       if (resolvedRoomKey) {
         resetUnread(resolvedRoomKey);
       }
-    } catch (err) {
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 403 || status === 404) {
+        setRawMessages([]);
+        setError(null);
+        return;
+      }
+
       console.warn('Failed to load room history', err);
       setError('Unable to load conversation');
     } finally {
@@ -766,7 +781,7 @@ export const useChatSession = ({
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
-    const deviceId = deviceIdRef.current;
+    const deviceId = deviceIdRef.current ?? undefined;
 
     const sendPing = () =>
       stompClient
@@ -1404,7 +1419,7 @@ export const useChatSession = ({
       }
       stompClient.publish(sendRoomTyping(roomId), {
         typing: isTyping,
-        deviceId: deviceIdRef.current,
+        deviceId: deviceIdRef.current ?? undefined,
       });
       if (peerId != null) {
         stompClient.publish(sendDirectTyping(peerId), {

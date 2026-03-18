@@ -1,6 +1,17 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo } from 'react';
-import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import {
+  Alert,
+  Animated,
+  Easing,
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+// eslint-disable-next-line import/no-unresolved
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
@@ -12,71 +23,178 @@ export default function VideoCallReceivingScreen() {
   const params = useLocalSearchParams();
 
   const pickParam = value => (Array.isArray(value) ? value[0] : value);
+
   const name = pickParam(params?.name) ?? 'Unknown caller';
   const image = pickParam(params?.image);
   const callIdRaw = pickParam(params?.callId);
+
   const callId = useMemo(() => {
     if (callIdRaw == null) return null;
     const parsed = Number(callIdRaw);
     return Number.isNaN(parsed) ? null : parsed;
   }, [callIdRaw]);
 
-  const { declineCall } = useCallSignalingHook({ callId });
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const closedRef = useRef(false);
+
+  const handleIncomingEvent = useCallback(
+    event => {
+      if (!event || closedRef.current) return;
+
+      const eventCallId =
+        typeof event.callId === 'number' ? event.callId : Number(event.callId ?? callId);
+
+      if (callId && !Number.isNaN(eventCallId) && eventCallId !== callId) {
+        return;
+      }
+
+      switch (event.type) {
+        case 'call.end':
+        case 'call.fail':
+        case 'call.decline':
+          closedRef.current = true;
+          router.back();
+          break;
+        default:
+          break;
+      }
+    },
+    [callId, router],
+  );
+
+  const signaling = useCallSignalingHook({
+    callId,
+    onCallEvent: handleIncomingEvent,
+  });
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.08,
+          duration: 900,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    loop.start();
+    return () => loop.stop();
+  }, [pulseAnim]);
 
   const handleDecline = async () => {
     try {
-      if (callId) {
-        await declineCall(callId);
+      if (callId && typeof signaling?.declineCall === 'function') {
+        await signaling.declineCall(callId);
       }
     } catch (err) {
       console.warn('Failed to decline video call', err);
     } finally {
+      closedRef.current = true;
       router.back();
     }
   };
 
-  const handleAccept = () => {
+  const handleAccept = async () => {
     if (!callId) {
       Alert.alert('Call unavailable', 'Unable to open this incoming call.');
       return;
     }
-    router.replace({
-      pathname: '/screens/VideoCallScreen',
-      params: {
-        callId: String(callId),
-        name,
-        ...(image ? { image } : {}),
-        role: 'callee',
-      },
-    });
+
+    try {
+      // Important:
+      // If your hook supports answerCall, this is the right place to send it.
+      if (typeof signaling?.answerCall === 'function') {
+        await signaling.answerCall(callId);
+      }
+
+      closedRef.current = true;
+
+      router.replace({
+        pathname: '/screens/VideoCallScreen',
+        params: {
+          callId: String(callId),
+          name,
+          ...(image ? { image } : {}),
+          role: 'callee',
+          accepted: '1',
+        },
+      });
+    } catch (err) {
+      console.warn('Failed to accept video call', err);
+      Alert.alert('Call error', 'Unable to accept this video call right now.');
+    }
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={[styles.header, { paddingTop: insets.top }]}>
-        <Text style={styles.headerTitle}>Incoming video call</Text>
-      </View>
-
-      <View style={styles.content}>
-        <View style={styles.avatarContainer}>
-          {image ? (
-            <Image source={{ uri: image }} style={styles.avatarImage} />
-          ) : (
-            <Icon name="person" size={80} color="#7a7a7a" />
-          )}
+      <LinearGradient
+        colors={['#05070A', '#0B0F14', '#111827']}
+        style={styles.container}
+      >
+        <View style={[styles.topArea, { paddingTop: insets.top + 12 }]}>
+          <Text style={styles.callType}>Incoming video call</Text>
         </View>
-        <Text style={styles.name}>{name}</Text>
-        <Text style={styles.status}>Wants to start a video call…</Text>
-      </View>
 
-      <View style={[styles.controls, { paddingBottom: insets.bottom + 24 }]}>
-        <TouchableOpacity style={[styles.controlBtn, styles.decline]} onPress={handleDecline}>
-          <Icon name="call-end" size={28} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.controlBtn, styles.accept]} onPress={handleAccept}>
-          <Icon name="videocam" size={28} color="#fff" />
-        </TouchableOpacity>
-      </View>
+        <View style={styles.centerArea}>
+          <Animated.View
+            style={[
+              styles.pulseRing,
+              {
+                transform: [{ scale: pulseAnim }],
+              },
+            ]}
+          />
+
+          <View style={styles.avatarContainer}>
+            {image ? (
+              <Image source={{ uri: image }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatarFallback}>
+                <Text style={styles.avatarFallbackText}>
+                  {name?.trim()?.charAt(0)?.toUpperCase() || '?'}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <Text numberOfLines={1} style={styles.name}>
+            {name}
+          </Text>
+
+          <Text style={styles.status}>wants to start a video call</Text>
+        </View>
+        <View style={[styles.bottomArea, { paddingBottom: insets.bottom + 22 }]}>
+          <View style={styles.controlsRow}>
+            <View style={styles.controlItem}>
+              <Pressable
+                style={[styles.actionBtn, styles.declineBtn]}
+                onPress={handleDecline}
+              >
+                <Icon name="call-end" size={28} color="#fff" />
+              </Pressable>
+              <Text style={styles.actionLabel}>Decline</Text>
+            </View>
+
+            <View style={styles.controlItem}>
+              <Pressable
+                style={[styles.actionBtn, styles.acceptBtn]}
+                onPress={handleAccept}
+              >
+                <Icon name="videocam" size={28} color="#fff" />
+              </Pressable>
+              <Text style={styles.actionLabel}>Accept</Text>
+            </View>
+          </View>
+        </View>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -84,65 +202,117 @@ export default function VideoCallReceivingScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#05070A',
   },
-  header: {
+
+  container: {
+    flex: 1,
+  },
+
+  topArea: {
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
   },
-  headerTitle: {
-    fontSize: 18,
+
+  callType: {
+    color: '#D1D5DB',
+    fontSize: 16,
     fontWeight: '600',
-    color: '#E2E8F0',
+    letterSpacing: 0.3,
   },
-  content: {
+
+  centerArea: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  avatarContainer: {
-    width: 170,
-    height: 170,
-    borderRadius: 85,
-    borderWidth: 4,
-    borderColor: '#38BDF8',
-    justifyContent: 'center',
     alignItems: 'center',
-    overflow: 'hidden',
-    backgroundColor: '#1E293B',
-    marginBottom: 18,
+    paddingHorizontal: 24,
   },
+
+  pulseRing: {
+    position: 'absolute',
+    width: 230,
+    height: 230,
+    borderRadius: 115,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+
+  avatarContainer: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: '#1F2937',
+    marginBottom: 22,
+  },
+
   avatarImage: {
     width: '100%',
     height: '100%',
   },
-  name: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#F8FAFC',
-  },
-  status: {
-    marginTop: 6,
-    fontSize: 16,
-    color: '#CBD5E1',
-  },
-  controls: {
-    flexDirection: 'row',
-    justifyContent: 'space-evenly',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  controlBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+
+  avatarFallback: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  decline: {
+
+  avatarFallbackText: {
+    color: '#fff',
+    fontSize: 64,
+    fontWeight: '700',
+  },
+
+  name: {
+    color: '#fff',
+    fontSize: 30,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  status: {
+    marginTop: 8,
+    color: '#9CA3AF',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+
+  bottomArea: {
+    paddingHorizontal: 28,
+  },
+
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    alignItems: 'center',
+  },
+
+  controlItem: {
+    alignItems: 'center',
+  },
+
+  actionBtn: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  declineBtn: {
     backgroundColor: '#E53935',
   },
-  accept: {
+
+  acceptBtn: {
     backgroundColor: '#16A34A',
+  },
+
+  actionLabel: {
+    marginTop: 10,
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

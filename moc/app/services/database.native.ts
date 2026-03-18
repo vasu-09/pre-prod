@@ -1216,6 +1216,16 @@ export const setMetaValueInDb = async (key: string, value: string | null): Promi
     );
   });
 
+
+  export const clearChatState = async (): Promise<void> =>
+  runWithWriteLock(async () => {
+    const db = await getDatabase();
+    await db.withExclusiveTransactionAsync(async tx => {
+      await tx.runAsync('DELETE FROM messages');
+      await tx.runAsync('DELETE FROM conversations');
+    });
+  });
+  
 export const upsertUserProfileInDb = async (profile: StoredUserProfileInput): Promise<void> =>
   runWithWriteLock(async () => {
     const db = await getDatabase();

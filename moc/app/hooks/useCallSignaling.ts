@@ -185,8 +185,13 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
   );
 
   const answerCall = useCallback(
-    (payload: CallAnswerPayload, targetCallId?: number) => {
-      const resolved = targetCallId ?? ensureNumber(callId);
+    (payloadOrCallId?: CallAnswerPayload | number, targetCallId?: number) => {
+      const hasPayload =
+        payloadOrCallId != null && typeof payloadOrCallId === 'object' && 'type' in payloadOrCallId;
+      const payload = hasPayload ? (payloadOrCallId as CallAnswerPayload) : ({ type: 'answer' } as CallAnswerPayload);
+      const resolved = hasPayload
+        ? targetCallId ?? ensureNumber(callId)
+        : ensureNumber(payloadOrCallId as number | null | undefined) ?? ensureNumber(callId);
       if (!resolved) {
         return Promise.reject(new Error('Call id not available'));
       }

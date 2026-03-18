@@ -190,8 +190,12 @@ export const MessageContent = ({
     };
   }, [item.id, item.failed, item?.raw?.decryptionFailed, onRetryDecrypt]);
 
-  const fallbackText = item.text ?? item?.raw?.body ?? 'Encrypted message';
-  const messageText = overrideText ?? fallbackText;
+  const fallbackText =
+    item?.raw?.decryptionFailed || item.failed
+      ? DECRYPTION_PENDING_TEXT
+      : item.text ?? null;
+
+  const messageText = overrideText ?? fallbackText ?? '';
 
   const isPendingPlaceholder = messageText === DECRYPTION_PENDING_TEXT;
   const rawDeliveryStatus = item?.raw?.deliveryStatus ?? item?.raw?.status;
@@ -712,11 +716,8 @@ export default function ChatDetailScreen() {
   const flatListRef = useRef();
   const activeCallIdRef = useRef(null);
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
-<<<<<<< HEAD
-=======
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const [androidKeyboardVisible, setAndroidKeyboardVisible] = useState(false);
->>>>>>> d13b930c89cf77dc8b1367a583ba01fc6a049d4a
   const [composerHeight, setComposerHeight] = useState(72);
   const router = useRouter();
   const isFocused = useIsFocused();
@@ -742,11 +743,24 @@ export default function ChatDetailScreen() {
       ) ?? null
     );
   }, [rooms, paramRoomId, paramRoomKey]);
-  const roomId = paramRoomId ?? roomSummary?.id ?? null;
+  const isRequestedRoomVisible = useMemo(() => {
+    if (paramRoomId == null && !paramRoomKey) {
+      return true;
+    }
+    return Boolean(roomSummary);
+  }, [paramRoomId, paramRoomKey, roomSummary]);
+
+  const roomId = isRequestedRoomVisible ? (paramRoomId ?? roomSummary?.id ?? null) : null;
+  const roomKey = isRequestedRoomVisible ? (paramRoomKey ?? roomSummary?.roomKey ?? null) : null;
   const isChatActive = Boolean(roomId) && isFocused && appState === 'active';
-  const roomKey = paramRoomKey ?? roomSummary?.roomKey ?? null;
   const chatTitle = paramTitle ?? roomSummary?.title ?? 'Chat';
-  const peerId = paramPeerId ?? roomSummary?.peerId ?? null;
+  const peerId = isRequestedRoomVisible ? (paramPeerId ?? roomSummary?.peerId ?? null) : null;
+
+  useEffect(() => {
+    if ((paramRoomId != null || paramRoomKey) && !isRequestedRoomVisible) {
+      router.replace('/screens/MocScreen');
+    }
+  }, [paramRoomId, paramRoomKey, isRequestedRoomVisible, router]);
   const phoneNumber = useMemo(() => {
     const rawPhone = params?.phone ?? roomSummary?.peerPhone;
     if (Array.isArray(rawPhone)) return rawPhone[0] ?? '';
@@ -952,7 +966,7 @@ const avatarSource = avatarUri ? { uri: avatarUri } : null;
     if (msg.audio) return 'Audio message';
     if (msg.image) return 'Photo';
     if (msg.isFile) return msg.text || 'Document';
-    const text = msg.text ?? msg?.raw?.body ?? '';
+    const text = msg.text ?? '';
     if (!text) return 'Message';
     return String(text).replace(/\s+/g, ' ').trim();
   }, []);
@@ -2314,15 +2328,13 @@ const makeReplyPayload = useCallback(
 
   useEffect(() => {
     if (Platform.OS === 'android') {
-<<<<<<< HEAD
-      return undefined;
-=======
       const showSub = Keyboard.addListener('keyboardDidShow', e => {
         const keyboardHeight = e?.endCoordinates?.height ?? 0;
         setAndroidKeyboardVisible(true);
         setAndroidKeyboardHeight(keyboardHeight);
     
-      requestAnimationFrame(() => {
+
+        requestAnimationFrame(() => {
           flatListRef.current?.scrollToEnd({ animated: true });
         });
       });
@@ -2336,7 +2348,6 @@ const makeReplyPayload = useCallback(
         showSub.remove();
         hideSub.remove();
       };
->>>>>>> d13b930c89cf77dc8b1367a583ba01fc6a049d4a
     }
 
     const showSub = Keyboard.addListener('keyboardWillShow', () => {
@@ -2353,32 +2364,19 @@ const makeReplyPayload = useCallback(
   const isIOS = Platform.OS === 'ios';
   const BodyWrapper = isIOS ? KeyboardAvoidingView : View;
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
-<<<<<<< HEAD
-  
-=======
   const androidKeyboardOffset =
     Platform.OS === 'android' && androidKeyboardVisible
       ? Math.max(0, androidKeyboardHeight - insets.bottom)
       : 0;
-
->>>>>>> d13b930c89cf77dc8b1367a583ba01fc6a049d4a
   // When keyboard is closed: stay above navigation bar.
   // When keyboard is open: remove nav-bar spacing and sit just above keyboard.
   const composerBottomInset =
     Platform.OS === 'android'
-<<<<<<< HEAD
-      ? insets.bottom + MARGIN
-      : Math.max(insets.bottom, MARGIN);
-
-  const overlayBottomOffset =
-    composerHeight + MARGIN;
-=======
       ? (androidKeyboardVisible ? MARGIN : insets.bottom + MARGIN)
       : Math.max(insets.bottom, MARGIN);
 
   const overlayBottomOffset =
     androidKeyboardOffset + composerHeight + MARGIN;
->>>>>>> d13b930c89cf77dc8b1367a583ba01fc6a049d4a
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -2746,11 +2744,7 @@ const makeReplyPayload = useCallback(
       {attachMenuVisible && (
         <>
           <TouchableOpacity style={styles.attachOverlay} onPress={() => setAttachMenuVisible(false)} />
-<<<<<<< HEAD
-          <View style={[styles.attachGrid, { bottom: composerHeight }]}>
-=======
           <View style={[styles.attachGrid, { bottom: androidKeyboardOffset + composerHeight }]}>
->>>>>>> d13b930c89cf77dc8b1367a583ba01fc6a049d4a
             {[
               ['photos', 'photo'],
               ['files', 'insert-drive-file'],
@@ -2917,11 +2911,7 @@ const makeReplyPayload = useCallback(
             styles.bottomBar,
             styles.bottomBarAbsolute,
             {
-<<<<<<< HEAD
-              bottom: 0,
-=======
               bottom: Platform.OS === 'android' ? androidKeyboardOffset : 0,
->>>>>>> d13b930c89cf77dc8b1367a583ba01fc6a049d4a
               paddingBottom: composerBottomInset,
             },
          ]}

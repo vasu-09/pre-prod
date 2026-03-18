@@ -4,10 +4,14 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { inboxQueue, sendInboxAck as sendInboxAckDestination } from '../constants/stompEndpoints';
 import { getAccessToken, getStoredUserId } from '../services/authStorage';
 import {
+  clearChatState,
+  getMetaValueFromDb,
   getRecentConversationsFromDb,
   setConversationUnreadInDb,
+  setMetaValueInDb,
   upsertConversationInDb,
 } from '../services/database';
+import { getE2EEClient } from '../services/e2ee';
 import { fetchPendingMessages } from '../services/messagesService';
 import { syncPushTokenWithBackend } from '../services/pushRegistration';
 import stompClient from '../services/stompClient';
@@ -97,6 +101,40 @@ const deriveRoomKeyFromPayload = (payload: any, currentUserId: number | null) =>
   return null;
 };
 
+
+const ACTIVE_CHAT_DEVICE_META_KEY = 'chat.activeDeviceId';
+const ACTIVE_CHAT_USER_META_KEY = 'chat.activeUserId';
+
+const resolveAuthenticatedDeviceId = async (): Promise<string | null> => {
+  try {
+    const client = await getE2EEClient();
+    const value =
+      client && typeof client.getDeviceId === 'function' ? client.getDeviceId() : null;
+    return value ? String(value) : null;
+  } catch (err) {
+    console.warn('Failed to resolve authenticated device id', err);
+    return null;
+  }
+};
+
+const mapStoredConversationToRoomSummary = (room: any): RoomSummary => ({
+  id: room.id,
+  roomKey: room.roomKey,
+  title: room.title ?? room.roomKey,
+  avatar: room.avatar ?? null,
+  peerId: room.peerId ?? null,
+  peerPhone: room.peerPhone ?? null,
+  lastMessage: room.lastMessage
+    ? {
+        messageId: room.lastMessage.id,
+        text: room.lastMessage.plaintext ?? null,
+        at: room.lastMessage.createdAt ?? new Date().toISOString(),
+        senderId: room.lastMessage.senderId ?? undefined,
+      }
+    : null,
+  unreadCount: room.unreadCount ?? 0,
+});
+
 export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
   const segments = useSegments();
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
@@ -173,49 +211,60 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
   }, [sessionReady, accessToken]);
 
   useEffect(() => {
-    getStoredUserId()
-      .then(value => {
-        if (value != null) {
-          const parsed = Number(value);
-          setCurrentUserId(Number.isNaN(parsed) ? null : parsed);
-        }
-      })
-      .catch(() => setCurrentUserId(null));
-  }, []);
-
-  useEffect(() => {
+    if (!sessionReady || !accessToken || currentUserId == null) {
+      return;
+    }
     let cancelled = false;
 
-    getRecentConversationsFromDb()
-      .then(results => {
-        if (cancelled) {
-          return;
+    const bootstrapChatState = async () => {
+      try {
+        const [authDeviceId, storedDeviceId, storedUserId] = await Promise.all([
+          resolveAuthenticatedDeviceId(),
+          getMetaValueFromDb(ACTIVE_CHAT_DEVICE_META_KEY),
+          getMetaValueFromDb(ACTIVE_CHAT_USER_META_KEY),
+        ]);
+
+        if (cancelled) return;
+
+        const normalizedUserId = String(currentUserId);
+        const deviceChanged =
+          Boolean(authDeviceId) &&
+          Boolean(storedDeviceId) &&
+          String(authDeviceId) !== String(storedDeviceId);
+
+        const userChanged =
+          Boolean(storedUserId) &&
+          String(storedUserId) !== normalizedUserId;
+
+        if (deviceChanged || userChanged) {
+          await clearChatState();
+          if (cancelled) return;
+          setRooms([]);
         }
-        const restored = results.map(room => ({
-          id: room.id,
-          roomKey: room.roomKey,
-          title: room.title ?? room.roomKey,
-          avatar: room.avatar ?? null,
-          peerId: room.peerId ?? null,
-          peerPhone: room.peerPhone ?? null,
-          lastMessage: room.lastMessage
-            ? {
-                messageId: room.lastMessage.id,
-                text: room.lastMessage.plaintext ?? room.lastMessage.ciphertext ?? undefined,
-                at: room.lastMessage.createdAt ?? new Date().toISOString(),
-                senderId: room.lastMessage.senderId ?? undefined,
-              }
-            : null,
-          unreadCount: room.unreadCount ?? 0,
-        }));
-        setRooms(sortRooms(restored));
-      })
-      .catch(err => console.warn('Failed to hydrate chat registry from SQLite', err));
+
+        await Promise.all([
+          setMetaValueInDb(ACTIVE_CHAT_USER_META_KEY, normalizedUserId),
+          setMetaValueInDb(ACTIVE_CHAT_DEVICE_META_KEY, authDeviceId),
+        ]);
+
+        if (cancelled) return;
+
+        const results = await getRecentConversationsFromDb();
+        if (cancelled) return;
+
+        setRooms(sortRooms(results.map(mapStoredConversationToRoomSummary)));
+      } catch (err) {
+        console.warn('Failed to bootstrap chat registry', err);
+      }
+    };
+
+    bootstrapChatState();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sessionReady, accessToken, currentUserId]);
+
 
   const persistConversation = useCallback((summary: RoomSummary) => {
     upsertConversationInDb({
@@ -366,10 +415,18 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
           : coerceNumber(payload.fromUserId ?? payload.senderId);
       const createdAt = payload.serverTs ?? payload.createdAt ?? new Date().toISOString();
 
+
+       const previewText =
+        typeof payload?.body === 'string'
+          ? payload.body
+          : typeof payload?.plaintext === 'string'
+            ? payload.plaintext
+            : null;
+
       const lastMessage: RoomLastMessage | null = messageId
         ? {
             messageId: String(messageId),
-            text: payload.body ?? payload.plaintext ?? payload.ciphertext ?? null,
+            text: previewText,
             at: createdAt,
             senderId: senderId ?? undefined,
           }
@@ -410,10 +467,6 @@ const sendInboxAck = useCallback((msgId: string, roomKey?: string | null) => {
     () => ({ rooms, upsertRoom, updateRoomActivity, incrementUnread, resetUnread }),
     [rooms, upsertRoom, updateRoomActivity, incrementUnread, resetUnread],
   );
-
-  useEffect(() => {
-    roomsRef.current = rooms;
-  }, [rooms]);
 
   useEffect(() => {
     if (!sessionReady || !accessToken || !shouldConnectRealtime) return;

@@ -28,7 +28,7 @@ export default function VideoCallScreen() {
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [permission, requestPermission] = useCameraPermissions();
   const [statusText, setStatusText] = useState(
-    role === 'callee' ? 'Incoming video call…' : 'Calling…',
+    role === 'callee' ? 'Connecting…' : 'Calling…',
   );
   const hasEndedRef = useRef(false);
   const joinedCallRef = useRef(null);
@@ -77,7 +77,7 @@ export default function VideoCallScreen() {
     [callId, role, router],
   );
 
-  const { joinCall, leaveCall, endCall, markRinging } = useCallSignalingHook({
+  const { joinCall, leaveCall, endCall } = useCallSignalingHook({
     callId,
     onCallEvent: handleCallEvent,
   });
@@ -96,11 +96,11 @@ export default function VideoCallScreen() {
     joinedCallRef.current = callId;
     hasEndedRef.current = false;
 
-    joinCall(callId).catch(err => console.warn('Failed to join video call', err));
-
     if (role === 'callee') {
-      markRinging(callId).catch(err => console.warn('Failed to mark video ringing', err));
+      setStatusText('Connecting…');
     }
+
+    joinCall(callId).catch(err => console.warn('Failed to join video call', err));
 
     return () => {
       if (joinedCallRef.current === callId) {
@@ -108,7 +108,8 @@ export default function VideoCallScreen() {
       }
       leaveCall(callId).catch(err => console.warn('Failed to leave video call', err));
     };
-  }, [callId, joinCall, leaveCall, markRinging, role]);
+  }, [callId, joinCall, leaveCall, role]);
+
 
   const handleEnd = useCallback(async () => {
     try {
