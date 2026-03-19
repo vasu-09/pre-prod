@@ -106,6 +106,11 @@ export const loadDeviceState = async (): Promise<DeviceState | null> => {
   }
 };
 
+export const getStoredDeviceId = async (): Promise<string | null> => {
+  const state = await loadDeviceState();
+  return state?.deviceId ?? null;
+};
+
 export const saveDeviceState = async (state: DeviceState): Promise<void> => {
   const payload = JSON.stringify(state);
   await deviceStorage.setItem(STORAGE_KEY, payload)

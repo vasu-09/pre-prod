@@ -10,7 +10,6 @@ import {
   updateSessionTokens,
 } from './authStorage';
 
-
 type DeveloperInfo = {
   url?: string | null;
   hostname?: string | null;
@@ -493,6 +492,11 @@ const isAuthRoute = (url?: string | null) => {
   );
 };
 
+const isBootstrapSensitiveRoute = (url?: string | null) => {
+  const normalized = String(url ?? '');
+  return isAuthRoute(normalized) || normalized.includes('/api/e2ee/');
+};
+
 const refreshAccessToken = async (): Promise<string | null> => {
   if (!refreshPromise) {
     refreshPromise = (async () => {
@@ -579,7 +583,7 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.request.use(async (config) => {
   try {
-    if (isAuthRoute(config.url)) {
+    if (isBootstrapSensitiveRoute(config.url)) {
       return config;
     }
 
@@ -591,10 +595,9 @@ apiClient.interceptors.request.use(async (config) => {
     } else {
       headers.delete('Authorization');
     }
-    
-    const { getE2EEClient } = await import('./e2ee');
-    const e2ee = await getE2EEClient().catch(() => null);
-    const deviceId = e2ee && typeof e2ee.getDeviceId === 'function' ? e2ee.getDeviceId() : null;
+
+    const { getStoredDeviceId } = await import('./e2ee');
+    const deviceId = await getStoredDeviceId().catch(() => null);
     if (deviceId) {
       headers.set('X-Device-Id', deviceId);
     } else {
@@ -603,7 +606,7 @@ apiClient.interceptors.request.use(async (config) => {
 
     config.headers = headers;
   } catch (error) {
-   console.warn('[apiClient] Failed to attach a valid access token.', error);
+   console.warn('[apiClient] Failed to attach headers.', error);
   }
   return config;
 });
