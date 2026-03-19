@@ -584,16 +584,24 @@ apiClient.interceptors.request.use(async (config) => {
     }
 
     const token = await ensureValidAccessToken();
+    const headers = AxiosHeaders.from(config.headers ?? {});
 
     if (token) {
-      const headers = AxiosHeaders.from(config.headers ?? {});
       headers.set('Authorization', `Bearer ${token}`);
-      config.headers = headers;
     } else {
-      const headers = AxiosHeaders.from(config.headers ?? {});
       headers.delete('Authorization');
-      config.headers = headers;
     }
+    
+    const { getE2EEClient } = await import('./e2ee');
+    const e2ee = await getE2EEClient().catch(() => null);
+    const deviceId = e2ee && typeof e2ee.getDeviceId === 'function' ? e2ee.getDeviceId() : null;
+    if (deviceId) {
+      headers.set('X-Device-Id', deviceId);
+    } else {
+      headers.delete('X-Device-Id');
+    }
+
+    config.headers = headers;
   } catch (error) {
    console.warn('[apiClient] Failed to attach a valid access token.', error);
   }
