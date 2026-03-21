@@ -494,7 +494,7 @@ const isAuthRoute = (url?: string | null) => {
 
 const isBootstrapSensitiveRoute = (url?: string | null) => {
   const normalized = String(url ?? '');
-  return isAuthRoute(normalized) || normalized.includes('/api/e2ee/');
+  return isAuthRoute(normalized);
 };
 
 const refreshAccessToken = async (): Promise<string | null> => {
@@ -588,25 +588,26 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.request.use(async (config) => {
   try {
-    if (isBootstrapSensitiveRoute(config.url)) {
-      return config;
-    }
-
-    const token = await ensureValidAccessToken();
     const headers = AxiosHeaders.from(config.headers ?? {});
 
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`);
-    } else {
-      headers.delete('Authorization');
+    if (!isBootstrapSensitiveRoute(config.url)) {
+      const token = await ensureValidAccessToken();
+
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+      } else {
+        headers.delete('Authorization');
+      }
     }
 
-    const { getStoredDeviceId } = await import('./e2ee');
-    const deviceId = await getStoredDeviceId().catch(() => null);
-    if (deviceId) {
-      headers.set('X-Device-Id', deviceId);
-    } else {
-      headers.delete('X-Device-Id');
+    if (!isBootstrapSensitiveRoute(config.url)) {
+      const { getStoredDeviceId } = await import('./e2ee');
+      const deviceId = await getStoredDeviceId().catch(() => null);
+      if (deviceId) {
+        headers.set('X-Device-Id', deviceId);
+      } else {
+        headers.delete('X-Device-Id');
+      }
     }
 
     config.headers = headers;
