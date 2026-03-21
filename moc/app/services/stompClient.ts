@@ -538,7 +538,7 @@ class StompManager {
 
     this.desired = true;
 
-    if (this.client && this.client.isConnected() && this.lastToken === latestToken) {
+    if (this.client && this.client.isConnected()) {
       return this.client;
     }
 
@@ -567,7 +567,10 @@ class StompManager {
   }
 
   async publish(destination: string, payload: unknown, headers: Record<string, unknown> = {}) {
-    const client = await this.ensureConnected();
+    const client =
+      this.client && this.client.isConnected()
+        ? this.client
+        : await this.ensureConnected();
     const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
     debugLog('publish', { destination, payload, body });
     const stringHeaders = Object.entries(headers).reduce<Record<string, string>>((acc, [key, value]) => {
@@ -626,5 +629,3 @@ class StompManager {
 const stompManager = new StompManager();
 
 export default stompManager;
-
-

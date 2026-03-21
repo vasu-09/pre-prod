@@ -223,6 +223,7 @@ export const useChatSession = ({
   const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   const [userLoaded, setUserLoaded] = useState(false);
   const [e2eeClient, setE2eeClient] = useState<E2EEClient | null>(null);
+  const [deviceReady, setDeviceReady] = useState(false);
   const [e2eeReady, setE2eeReady] = useState(false);
   const [sharedRoomKey, setSharedRoomKey] = useState<string | null>(null);
   const latestMessageIdRef = useRef<string | null>(null);
@@ -232,8 +233,10 @@ export const useChatSession = ({
   );
   const typingSentRef = useRef(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const subscriptionsRef = useRef<(() => void)[]>([]);
   const deviceIdRef = useRef<string | null>(null);
+  const currentUserIdRef = useRef<number | null>(null);
+  const e2eeClientRef = useRef<E2EEClient | null>(null);
+  const sharedRoomKeyRef = useRef<string | null>(null);
 
   const toDbRecord = useCallback(
     (
@@ -277,19 +280,29 @@ export const useChatSession = ({
     [],
   );
 
-  const isDeletedForUser = useCallback(
-    (message: InternalMessage) => {
-      if (!currentUserId || message.deletedForEveryone) {
-        return false;
-      }
-      const fromCurrentUser = message.senderId === currentUserId;
-      if (fromCurrentUser) {
-        return Boolean(message.deletedBySender);
-      }
-      return Boolean(message.deletedByReceiver);
-    },
-    [currentUserId],
-  );
+  const isDeletedForCurrentUser = useCallback((message: InternalMessage) => {
+    const activeUserId = currentUserIdRef.current;
+    if (!activeUserId || message.deletedForEveryone) {
+      return false;
+    }
+    const fromCurrentUser = message.senderId === activeUserId;
+    if (fromCurrentUser) {
+      return Boolean(message.deletedBySender);
+    }
+    return Boolean(message.deletedByReceiver);
+  }, []);
+
+  useEffect(() => {
+    currentUserIdRef.current = currentUserId;
+  }, [currentUserId]);
+
+  useEffect(() => {
+    e2eeClientRef.current = e2eeClient;
+  }, [e2eeClient]);
+
+  useEffect(() => {
+    sharedRoomKeyRef.current = sharedRoomKey;
+  }, [sharedRoomKey]);
 
   useEffect(() => {
     getStoredUserId()
@@ -518,6 +531,7 @@ export const useChatSession = ({
             typeof client.getDeviceId === 'function'
               ? String(client.getDeviceId() ?? '') || null
               : null;
+          setDeviceReady(Boolean(deviceIdRef.current));
           if (SHOULD_LOG_E2EE) {
             console.debug('[CHAT][E2EE] client ready', {
               deviceId: typeof client.getDeviceId === 'function' ? client.getDeviceId() : undefined,
@@ -535,6 +549,7 @@ export const useChatSession = ({
         if (!cancelled) {
           setE2eeClient(null);
           deviceIdRef.current = null;
+          setDeviceReady(false);
         }
       })
       .finally(() => {
@@ -561,7 +576,7 @@ export const useChatSession = ({
         }
         if (stored.length) {
           const storedMessages = stored.map(toStoredMessage);
-          const deletedForUser = storedMessages.filter(isDeletedForUser);
+          const deletedForUser = storedMessages.filter(isDeletedForCurrentUser);
           const deletedIds = deletedForUser.map(message => message.messageId);
           const visibleMessages = storedMessages.filter(
             message => !deletedIds.includes(message.messageId),
@@ -580,7 +595,7 @@ export const useChatSession = ({
     return () => {
       cancelled = true;
     };
-  }, [roomId, deleteMessagesFromDb, isDeletedForUser]);
+  }, [roomId, deleteMessagesFromDb, isDeletedForCurrentUser]);
 
   useEffect(() => {
     if (!roomId || !resolvedRoomKey) {
@@ -690,7 +705,7 @@ export const useChatSession = ({
           };
         }),
       );
-      const deletedForUser = processed.filter(isDeletedForUser);
+      const deletedForUser = processed.filter(isDeletedForCurrentUser);
       const deletedIds = deletedForUser.map(message => message.messageId);
       const visibleMessages = processed.filter(
         message => !deletedIds.includes(message.messageId),
@@ -752,7 +767,7 @@ export const useChatSession = ({
     toDbRecord,
     saveMessagesToDb,
     deleteMessagesFromDb,
-    isDeletedForUser,
+    isDeletedForCurrentUser,
   ]);
 
   const lastLoadedRef = useRef<{ roomId: number | null; key: string | null } | null>(null);
@@ -775,7 +790,7 @@ export const useChatSession = ({
   }, [loadHistory, userLoaded, peerId, e2eeReady, roomId, resolvedRoomKey]);
 
   useEffect(() => {
-    if (!roomId || disableSubscriptions || !isActive || !deviceIdRef.current) {
+    if (!roomId || disableSubscriptions || !isActive || !deviceReady || !deviceIdRef.current) {
       return;
     }
 
@@ -829,28 +844,27 @@ export const useChatSession = ({
           console.warn('Failed to send room leave', err);
         });
     };
-  }, [disableSubscriptions, isActive, roomId]);
+  }, [disableSubscriptions, isActive, roomId, deviceReady]);
 
   const sendInboxDeliveryAck = useCallback(
     (messageId: string | null | undefined, status: 'DELIVERED' | 'READ') => {
       if (!messageId || !resolvedRoomKey) {
         return;
       }
-      const deviceId = typeof e2eeClient?.getDeviceId === 'function' ? e2eeClient.getDeviceId() : undefined;
       stompClient
         .publish(sendInboxAck, {
           msgId: String(messageId),
           roomKey: resolvedRoomKey,
           status,
-          deviceId,
+          deviceId: deviceIdRef.current ?? undefined,
         })
         .catch(err => console.warn('[WS][INBOX] ack failed', err));
     },
-    [e2eeClient, resolvedRoomKey],
+    [resolvedRoomKey],
   );
 
   useEffect(() => {
-    if (!roomId || !resolvedRoomKey || disableSubscriptions) {
+    if (!roomId || !resolvedRoomKey || disableSubscriptions || !isActive) {
       return;
     }
 
@@ -870,7 +884,7 @@ export const useChatSession = ({
         }
       });
 
-     const messageSub = stompClient.subscribe(roomTopic(resolvedRoomKey), frame => {
+    const messageSub = stompClient.subscribe(roomTopic(resolvedRoomKey), frame => {
       const payload = parseFrameBody(frame);
       if (!payload) {
         return;
@@ -923,7 +937,7 @@ export const useChatSession = ({
           keyRef: payload.keyRef ?? null,
           senderDeviceId: payload.senderDeviceId ?? null,
         } as InternalMessage;
-        if (isDeletedForUser(merged)) {
+        if (isDeletedForCurrentUser(merged)) {
           setRawMessages(prev => prev.filter(message => message.messageId !== merged.messageId));
           deleteMessagesFromDb([merged.messageId]).catch(err =>
             console.warn('Failed to delete message removed for user', err),
@@ -941,7 +955,12 @@ export const useChatSession = ({
           at: base.serverTs ?? new Date().toISOString(),
           senderId: base.senderId ?? null,
         });
-        if (base.senderId != null && currentUserId != null && base.senderId !== currentUserId) {
+        const currentUserForDelivery = currentUserIdRef.current;
+        if (
+          base.senderId != null &&
+          currentUserForDelivery != null &&
+          base.senderId !== currentUserForDelivery
+        ) {
           incrementUnread(resolvedRoomKey);
           const ackId = Number(payload.messageId);
           if (!Number.isNaN(ackId)) {
@@ -960,7 +979,8 @@ export const useChatSession = ({
 
 
       if (payload.e2ee) {
-        const fromSelf = currentUserId != null && base.senderId === currentUserId;
+        const activeUserId = currentUserIdRef.current;
+        const fromSelf = activeUserId != null && base.senderId === activeUserId;
         if (fromSelf) {
           const fallbackIsPending = fallbackBody === DECRYPTION_PENDING_MESSAGE;
           const selfUpdate: InternalMessage = {
@@ -974,7 +994,7 @@ export const useChatSession = ({
             keyRef: payload.keyRef ?? null,
             senderDeviceId: payload.senderDeviceId ?? null,
           };
-          if (isDeletedForUser(selfUpdate)) {
+          if (isDeletedForCurrentUser(selfUpdate)) {
             setRawMessages(prev => prev.filter(message => message.messageId !== selfUpdate.messageId));
             deleteMessagesFromDb([selfUpdate.messageId]).catch(err =>
               console.warn('Failed to delete message removed for user', err),
@@ -999,9 +1019,10 @@ export const useChatSession = ({
             ciphertext: payloadCiphertext,
             keyRef: payload.keyRef,
           };
-          if (e2eeClient) {
-            e2eeClient
-                .decryptEnvelope(envelope, false, {
+          const client = e2eeClientRef.current;
+          if (client) {
+            client
+              .decryptEnvelope(envelope, false, {
                 senderId: base.senderId ?? undefined,
                 sessionId: payload.keyRef ?? null,
                 senderDeviceId: payload.senderDeviceId ?? null,
@@ -1039,7 +1060,7 @@ export const useChatSession = ({
               keyRef: payload.keyRef ?? null,
               senderDeviceId: payload.senderDeviceId ?? null,
             };
-            if (isDeletedForUser(merged)) {
+            if (isDeletedForCurrentUser(merged)) {
               setRawMessages(prev => prev.filter(message => message.messageId !== merged.messageId));
               deleteMessagesFromDb([merged.messageId]).catch(err =>
                 console.warn('Failed to delete message removed for user', err),
@@ -1054,13 +1075,14 @@ export const useChatSession = ({
           return;
         }
 
-        if (payloadCiphertext && payloadIv && sharedRoomKey) {
+        const roomSharedKey = sharedRoomKeyRef.current;
+        if (payloadCiphertext && payloadIv && roomSharedKey) {
           const encrypted: EncryptedPayload = {
             ciphertext: payloadCiphertext,
             iv: payloadIv,
             aad: payloadAad ?? undefined,
           };
-          decryptMessage(encrypted, sharedRoomKey)
+          decryptMessage(encrypted, roomSharedKey)
             .then(text => finalize(text))
             .catch(err => {
               console.warn('Failed to decrypt symmetric incoming message', err);
@@ -1085,7 +1107,7 @@ export const useChatSession = ({
           keyRef: payload.keyRef ?? null,
           senderDeviceId: payload.senderDeviceId ?? null,
         };
-        if (isDeletedForUser(merged)) {
+        if (isDeletedForCurrentUser(merged)) {
           setRawMessages(prev => prev.filter(message => message.messageId !== merged.messageId));
           deleteMessagesFromDb([merged.messageId]).catch(err =>
             console.warn('Failed to delete message removed for user', err),
@@ -1096,7 +1118,12 @@ export const useChatSession = ({
         saveMessagesToDb([toDbRecord(merged, normalizedPayload)]).catch(err =>
           console.warn('Failed to persist incoming message', err),
         );
-        if (base.senderId != null && currentUserId != null && base.senderId !== currentUserId) {
+        const currentUserForDelivery = currentUserIdRef.current;
+        if (
+          base.senderId != null &&
+          currentUserForDelivery != null &&
+          base.senderId !== currentUserForDelivery
+        ) {
           const deliveredId = base.messageId ? String(base.messageId) : null;
           if (deliveredId) {
             sendInboxDeliveryAck(deliveredId, 'DELIVERED');
@@ -1124,10 +1151,11 @@ export const useChatSession = ({
       const deliveryStatus =
         typeof payload.deliveryStatus === 'string' ? payload.deliveryStatus : 'SENT_TO_WS';
       const isReadStatus = deliveryStatus === 'READ';
+      const activeUserId = currentUserIdRef.current;
       mergeMessage({
         messageId: ackMessageId,
         roomId: roomId,
-        senderId: currentUserId,
+        senderId: activeUserId,
         type: MESSAGE_TYPE_TEXT,
         serverTs: payload.serverTs,
         pending: false,
@@ -1149,7 +1177,8 @@ export const useChatSession = ({
       if (!payload || typeof payload.userId !== 'number') {
         return;
       }
-      if (currentUserId != null && payload.userId === currentUserId) {
+      const activeUserId = currentUserIdRef.current;
+      if (activeUserId != null && payload.userId === activeUserId) {
         return;
       }
       const expiresAt = payload.expiresAt ? new Date(payload.expiresAt).getTime() : Date.now() + 5000;
@@ -1167,7 +1196,8 @@ export const useChatSession = ({
       if (!payload || payload.userId == null) {
         return;
       }
-      if (currentUserId != null && payload.userId === currentUserId) {
+      const activeUserId = currentUserIdRef.current;
+      if (activeUserId != null && payload.userId === activeUserId) {
         if (resolvedRoomKey) {
           resetUnread(resolvedRoomKey);
         }
@@ -1176,84 +1206,72 @@ export const useChatSession = ({
 
     const subs: (() => void)[] = [messageSub, ackSub, typingSub, readSub];
 
-    if (peerId != null) {
-      const dmTypingSub = stompClient.subscribe(dmTypingQueue, frame => {
-        const payload = parseFrameBody(frame);
-        if (!payload || payload.senderId == null) {
-          return;
-        }
-        const sender = typeof payload.senderId === 'number' ? payload.senderId : Number(payload.senderId);
-        if (sender !== peerId) {
-          return;
-        }
-        const expiresAt = Date.now() + 5000;
-        setTyping(prev => {
-          const filtered = prev.filter(t => t.userId !== sender);
-          return [...filtered, { userId: sender, expiresAt }];
-        });
-      });
+    return () => {
+      cancelled = true;
+      setIsConnected(false);
+      subs.forEach(unsub => unsub());
+    };
+  }, [roomId, resolvedRoomKey, disableSubscriptions, isActive]);
 
-      const dmReadSub = stompClient.subscribe(dmReceiptQueue, frame => {
-        const payload = parseFrameBody(frame);
-        if (!payload) {
-          return;
-        }
-        const sender = typeof payload.senderId === 'number' ? payload.senderId : Number(payload.senderId);
-        const payloadRoomId =
-          typeof payload.roomId === 'number' ? payload.roomId : Number(payload.roomId ?? roomId);
-        if (Number.isNaN(payloadRoomId) || sender !== peerId || payloadRoomId !== roomId) {
-          return;
-        }
-        const messageKey = String(payload.messageId ?? '');
-        if (!messageKey) {
-          return;
-        }
-        setRawMessages(prev =>
-          prev.map(msg =>
-            msg.messageId === messageKey
-              ? {
-                  ...msg,
-                  readByPeer: true,
-                  deliveryStatus: 'READ',
-                }
-              : msg,
-          ),
-        );
-        if (payload.messageId) {
+  useEffect(() => {
+    if (!roomId || peerId == null || disableSubscriptions || !isActive) {
+      return;
+    }
+
+    const dmTypingSub = stompClient.subscribe(dmTypingQueue, frame => {
+      const payload = parseFrameBody(frame);
+      if (!payload || payload.senderId == null) {
+        return;
+      }
+      const sender = typeof payload.senderId === 'number' ? payload.senderId : Number(payload.senderId);
+      if (sender !== peerId) {
+        return;
+      }
+      const expiresAt = Date.now() + 5000;
+      setTyping(prev => {
+        const filtered = prev.filter(t => t.userId !== sender);
+        return [...filtered, { userId: sender, expiresAt }];
+      });
+    });
+
+    const dmReadSub = stompClient.subscribe(dmReceiptQueue, frame => {
+      const payload = parseFrameBody(frame);
+      if (!payload) {
+        return;
+      }
+      const sender = typeof payload.senderId === 'number' ? payload.senderId : Number(payload.senderId);
+      const payloadRoomId =
+        typeof payload.roomId === 'number' ? payload.roomId : Number(payload.roomId ?? roomId);
+      if (Number.isNaN(payloadRoomId) || sender !== peerId || payloadRoomId !== roomId) {
+        return;
+      }
+      const messageKey = String(payload.messageId ?? '');
+      if (!messageKey) {
+        return;
+      }
+      setRawMessages(prev =>
+        prev.map(msg =>
+          msg.messageId === messageKey
+            ? {
+                ...msg,
+                readByPeer: true,
+                deliveryStatus: 'READ',
+              }
+            : msg,
+        ),
+      );
+      if (payload.messageId) {
         updateMessageFlagsInDb(String(payload.messageId), { pending: false, error: false }).catch(err =>
           console.warn('Failed to clear pending flag for message', err),
         );
       }
       });
-      subs.push(dmTypingSub, dmReadSub);
-    }
-    subscriptionsRef.current = subs;
 
     return () => {
-      cancelled = true;
-      setIsConnected(false);
-      subscriptionsRef.current.forEach(unsub => unsub());
-      subscriptionsRef.current = [];
+      dmTypingSub();
+      dmReadSub();
     };
- }, [
-    roomId,
-    resolvedRoomKey,
-    disableSubscriptions,
-    mergeMessage,
-    updateRoomActivity,
-    incrementUnread,
-    resetUnread,
-    currentUserId,
-    peerId,
-    e2eeClient,
-    sharedRoomKey,
-    toDbRecord,
-    saveMessagesToDb,
-    deleteMessagesFromDb,
-    updateMessageFlagsInDb,
-    isDeletedForUser,
-    sendInboxDeliveryAck,
-  ]);
+ }, [roomId, peerId, disableSubscriptions, isActive]);
 
   useEffect(() => {
     if (!typing.length) {
