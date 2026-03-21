@@ -775,13 +775,16 @@ export const useChatSession = ({
   }, [loadHistory, userLoaded, peerId, e2eeReady, roomId, resolvedRoomKey]);
 
   useEffect(() => {
-    if (!roomId || disableSubscriptions || !isActive) {
+    if (!roomId || disableSubscriptions || !isActive || !deviceIdRef.current) {
       return;
     }
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
-    const deviceId = deviceIdRef.current ?? undefined;
+    const deviceId = deviceIdRef.current;
+    if (!deviceId) {
+      return;
+    }
 
     const sendPing = () =>
       stompClient
@@ -815,10 +818,13 @@ export const useChatSession = ({
       if (timer) {
         clearInterval(timer);
       }
+
+      if (!deviceId) {
+        return;
+      }
+
       stompClient
-        .publish(sendRoomLeave(roomId), {
-          deviceId,
-        })
+        .publish(sendRoomLeave(roomId), { deviceId })
         .catch(err => {
           console.warn('Failed to send room leave', err);
         });

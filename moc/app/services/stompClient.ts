@@ -435,6 +435,7 @@ class StompManager {
   private client: SimpleStompClient | null = null;
   private initPromise: Promise<SimpleStompClient> | null = null;
   private reconnectDelay = 5000;
+  private reconnectAttempts = 0;
   private subscriptions = new Map<string, SubscriptionEntry>();
   private desired = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -471,6 +472,8 @@ class StompManager {
         });
       };
       await client.connect();
+      this.reconnectAttempts = 0;
+      this.reconnectDelay = 5000;
       this.client = client;
       return client;
     })();
@@ -487,18 +490,35 @@ class StompManager {
     if (this.reconnectTimer) {
       return;
     }
+
+    const baseDelay = Math.min(60000, 1000 * Math.pow(2, this.reconnectAttempts));
+    const jitter = Math.floor(Math.random() * 1000);
+    const delay = Math.max(this.reconnectDelay, baseDelay + jitter);
+
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
       if (!this.desired) {
         return;
       }
+
       try {
         await this.initClient();
-      } catch (err) {
-        console.warn('STOMP reconnect failed', err);
+        this.reconnectAttempts = 0;
+      } catch (err: any) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn('STOMP reconnect failed', message);
+
+        this.reconnectAttempts += 1;
+
+        if (message.includes('429')) {
+          this.reconnectDelay = 30000;
+        } else {
+          this.reconnectDelay = 5000;
+        }
+
         this.scheduleReconnect();
       }
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   private resubscribe(client: SimpleStompClient) {

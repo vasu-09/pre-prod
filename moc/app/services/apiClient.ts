@@ -526,11 +526,16 @@ const refreshAccessToken = async (): Promise<string | null> => {
         return null;
       } catch (error) {
         const axiosErr = error as AxiosError;
+        const status = axiosErr.response?.status;
         console.warn('[apiClient] refreshAccessToken failed', {
-          status: axiosErr.response?.status,
+          status,
           data: axiosErr.response?.data,
         });
-        await clearSession();
+        
+        if (status === 401 || status === 403) {
+          await clearSession();
+        }
+        
         return null;
       } finally {
         refreshPromise = null;
