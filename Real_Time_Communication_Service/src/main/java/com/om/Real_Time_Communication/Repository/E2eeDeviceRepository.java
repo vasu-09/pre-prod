@@ -20,6 +20,20 @@ public interface E2eeDeviceRepository extends JpaRepository<E2eeDevice, Long> {
     @Modifying
     @Query("""
         update E2eeDevice d
+           set d.status = 'INACTIVE',
+               d.revokedAt = :now
+         where d.userId = :userId
+           and d.deviceId <> :currentDeviceId
+           and upper(d.status) = 'ACTIVE'
+    """)
+    int deactivateOtherDevices(@Param("userId") Long userId,
+                               @Param("currentDeviceId") String currentDeviceId,
+                               @Param("now") Instant now);
+
+
+    @Modifying
+    @Query("""
+        update E2eeDevice d
            set d.registeredAt = coalesce(d.registeredAt, :now),
                d.historyVisibleFrom = coalesce(d.historyVisibleFrom, coalesce(d.registeredAt, :now)),
                d.status = coalesce(d.status, 'ACTIVE'),

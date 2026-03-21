@@ -96,6 +96,26 @@ class E2eeDeviceServiceTest {
         assertThat(prekeyRepository.countByUserIdAndDeviceIdAndConsumedFalse(33L, "device-C")).isZero();
     }
 
+    @Test
+    void registerDeactivatesOtherActiveDevicesForSameUser() throws Exception {
+        KeyPair identityA = generateKeyPair();
+        KeyPair signedA = generateKeyPair();
+        RegisterDto deviceA = buildRegister("device-A", identityA, signedA, List.of());
+        assertThat(service.register(44L, deviceA)).isTrue();
+
+        KeyPair identityB = generateKeyPair();
+        KeyPair signedB = generateKeyPair();
+        RegisterDto deviceB = buildRegister("device-B", identityB, signedB, List.of());
+        assertThat(service.register(44L, deviceB)).isTrue();
+
+        E2eeDevice first = deviceRepository.findByUserIdAndDeviceId(44L, "device-A").orElseThrow();
+        E2eeDevice second = deviceRepository.findByUserIdAndDeviceId(44L, "device-B").orElseThrow();
+        assertThat(first.getStatus()).isEqualTo("INACTIVE");
+        assertThat(first.getRevokedAt()).isNotNull();
+        assertThat(second.getStatus()).isEqualTo("ACTIVE");
+        assertThat(second.getRevokedAt()).isNull();
+    }
+    
     private RegisterDto buildRegister(String deviceId, KeyPair identityKey, KeyPair signedPrekey, List<OneTimePrekeyDto> otks) throws Exception {
         byte[] identityPub = rawPublicKey(identityKey);
         byte[] signedPrekeyPub = rawPublicKey(signedPrekey);

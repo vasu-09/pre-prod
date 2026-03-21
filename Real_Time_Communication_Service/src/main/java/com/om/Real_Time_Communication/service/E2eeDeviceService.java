@@ -61,6 +61,7 @@ public class E2eeDeviceService {
         }
 
         Instant now = Instant.now();
+        deviceRepo.deactivateOtherDevices(userId, dto.getDeviceId(), now);
         E2eeDevice dev = deviceRepo.findByUserIdAndDeviceId(userId, dto.getDeviceId()).orElseGet(E2eeDevice::new);
         boolean existing = dev.getId() != null;
         boolean keyChanged = existing && (!java.util.Arrays.equals(dev.getIdentityKeyPub(), dto.getIdentityKeyPub())
@@ -87,6 +88,8 @@ public class E2eeDeviceService {
         dev.setIdentityKeyPub(dto.getIdentityKeyPub());
         dev.setSignedPrekeyPub(dto.getSignedPrekeyPub());
         dev.setSignedPrekeySig(dto.getSignedPrekeySig());
+        dev.setStatus("ACTIVE");
+        dev.setRevokedAt(null);
         dev.setLastSeen(now);
         deviceRepo.save(dev);
 
