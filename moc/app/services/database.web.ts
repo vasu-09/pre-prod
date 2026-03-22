@@ -39,7 +39,12 @@ export const getMessagesForConversationFromDb = async () => {
   return [];
 };
 
-export const updateMessageFlagsInDb = async () => {};
+export const updateMessageDeliveryInDb = async () => {};
+
+export const getMessageByIdFromDb = async (_messageId: string) => {
+  return null;
+};
+
 
 export const updateMessageDeletionInDb = async () => {};
 

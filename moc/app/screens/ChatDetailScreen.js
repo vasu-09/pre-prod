@@ -1939,8 +1939,29 @@ const makeReplyPayload = useCallback(
   };
 
   const handleInfo = () => {
-    Alert.alert('Message info', 'Info option selected.');
+    if (selectedMessages.length !== 1) {
+      Alert.alert('Select one message', 'Please select a single message.');
+      setMoreMenuVisible(false);
+      return;
+    }
+
+    const [selectedMessage] = selectedMessages;
+
+    if (selectedMessage.sender !== 'me') {
+      Alert.alert('Not available', 'Message info is only available for your sent messages.');
+      setMoreMenuVisible(false);
+      return;
+    }
+
+    router.push({
+      pathname: '/screens/MessageInfoScreen',
+      params: {
+        messageId: String(selectedMessage.id ?? selectedMessage.messageId),
+      },
+    });
+
     setMoreMenuVisible(false);
+    clearSelection();
   };
 
   const handlePin = () => {

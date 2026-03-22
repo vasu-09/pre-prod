@@ -65,7 +65,7 @@ let localContactCounter = 0;
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 const DB_NAME = 'moc-app.db';
-const CURRENT_SCHEMA_VERSION = 7;
+const CURRENT_SCHEMA_VERSION = 8;
 
 type MetaRow = {
   value: string;
@@ -98,6 +98,10 @@ type MessageRow = {
   pending: number;
   error: number;
   read_by_peer: number;
+  delivery_status?: string | null;
+  sent_at?: string | null;
+  delivered_at?: string | null;
+  read_at?: string | null;
   deleted_by_sender: number;
   deleted_by_receiver: number;
   deleted_for_everyone: number;
@@ -165,6 +169,10 @@ export type MessageRecordInput = {
   pending?: boolean;
   error?: boolean;
   readByPeer?: boolean;
+  deliveryStatus?: string | null;
+  sentAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
   deletedBySender?: boolean;
   deletedByReceiver?: boolean;
   deletedForEveryone?: boolean;
@@ -394,6 +402,46 @@ const migrateToV7 = async (db: SQLite.SQLiteDatabase) => {
   }
 };
 
+const migrateToV8 = async (db: SQLite.SQLiteDatabase) => {
+  try {
+    await db.execAsync('ALTER TABLE messages ADD COLUMN delivery_status TEXT;');
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping delivery_status migration', error);
+    }
+  }
+
+  try {
+    await db.execAsync('ALTER TABLE messages ADD COLUMN sent_at TEXT;');
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping sent_at migration', error);
+    }
+  }
+
+  try {
+    await db.execAsync('ALTER TABLE messages ADD COLUMN delivered_at TEXT;');
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping delivered_at migration', error);
+    }
+  }
+
+  try {
+    await db.execAsync('ALTER TABLE messages ADD COLUMN read_at TEXT;');
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping read_at migration', error);
+    }
+  }
+
+  await db.execAsync(`
+    UPDATE messages
+    SET sent_at = COALESCE(sent_at, created_at)
+    WHERE sent_at IS NULL
+  `);
+};
+
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {
   await ensureMetaTable(db);
   let version = await getSchemaVersion(db);
@@ -430,6 +478,10 @@ const runMigrations = async (db: SQLite.SQLiteDatabase) => {
     if (version < 7) {
       await migrateToV7(tx);
       version = 7;
+    }
+    if (version < 8) {
+      await migrateToV8(tx);
+      version = 8;
     }
     await setSchemaVersion(tx, version);
   });
@@ -558,6 +610,10 @@ const mapMessageRow = (row: MessageRow): MessageRecordInput => ({
   pending: row.pending === 1,
   error: row.error === 1,
   readByPeer: row.read_by_peer === 1,
+  deliveryStatus: row.delivery_status ?? null,
+  sentAt: row.sent_at ?? row.created_at ?? null,
+  deliveredAt: row.delivered_at ?? null,
+  readAt: row.read_at ?? null,
   deletedBySender: row.deleted_by_sender === 1,
   deletedByReceiver: row.deleted_by_receiver === 1,
   deletedForEveryone: row.deleted_for_everyone === 1,
@@ -659,8 +715,8 @@ export const saveMessagesToDb = async (messages: MessageRecordInput[]): Promise<
     await db.withExclusiveTransactionAsync(async (tx: SQLite.SQLiteDatabase) => {
       for (const message of messages) {
         await tx.runAsync(
-          `INSERT INTO messages (id, conversation_id, sender_id, plaintext, ciphertext, aad, iv, key_ref, e2ee, created_at, pending, error, read_by_peer, deleted_by_sender, deleted_by_receiver, deleted_for_everyone, system_message, reply_to_message_id, reply_to_sender_id, reply_to_preview)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO messages (id, conversation_id, sender_id, plaintext, ciphertext, aad, iv, key_ref, e2ee, created_at, pending, error, read_by_peer, delivery_status, sent_at, delivered_at, read_at, deleted_by_sender, deleted_by_receiver, deleted_for_everyone, system_message, reply_to_message_id, reply_to_sender_id, reply_to_preview)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              conversation_id = excluded.conversation_id,
              sender_id = excluded.sender_id,
@@ -674,6 +730,10 @@ export const saveMessagesToDb = async (messages: MessageRecordInput[]): Promise<
              pending = excluded.pending,
              error = excluded.error,
              read_by_peer = COALESCE(excluded.read_by_peer, messages.read_by_peer),
+             delivery_status = COALESCE(excluded.delivery_status, messages.delivery_status),
+             sent_at = COALESCE(excluded.sent_at, messages.sent_at, messages.created_at),
+             delivered_at = COALESCE(excluded.delivered_at, messages.delivered_at),
+             read_at = COALESCE(excluded.read_at, messages.read_at),
              deleted_by_sender = COALESCE(excluded.deleted_by_sender, messages.deleted_by_sender),
              deleted_by_receiver = COALESCE(excluded.deleted_by_receiver, messages.deleted_by_receiver),
              deleted_for_everyone = COALESCE(excluded.deleted_for_everyone, messages.deleted_for_everyone),
@@ -696,6 +756,10 @@ export const saveMessagesToDb = async (messages: MessageRecordInput[]): Promise<
             message.pending ? 1 : 0,
             message.error ? 1 : 0,
             message.readByPeer ? 1 : 0,
+            message.deliveryStatus ?? null,
+            message.sentAt ?? message.createdAt ?? new Date().toISOString(),
+            message.deliveredAt ?? null,
+            message.readAt ?? null,
             message.deletedBySender ? 1 : 0,
             message.deletedByReceiver ? 1 : 0,
             message.deletedForEveryone ? 1 : 0,
@@ -709,14 +773,22 @@ export const saveMessagesToDb = async (messages: MessageRecordInput[]): Promise<
     });
   });
 
-export const updateMessageFlagsInDb = async (
+export const updateMessageDeliveryInDb = async (
   messageId: string,
-  updates: { pending?: boolean; error?: boolean; readByPeer?: boolean },
+  updates: {
+    pending?: boolean;
+    error?: boolean;
+    readByPeer?: boolean;
+    deliveryStatus?: string | null;
+    sentAt?: string | null;
+    deliveredAt?: string | null;
+    readAt?: string | null;
+  },
 ): Promise<void> =>
   runWithWriteLock(async () => {
     const db = await getDatabase();
     const fields: string[] = [];
-    const params: (string | number)[] = [];
+    const params: (string | number | null)[] = [];
 
     if (updates.pending !== undefined) {
       fields.push('pending = ?');
@@ -730,6 +802,22 @@ export const updateMessageFlagsInDb = async (
       fields.push('read_by_peer = ?');
       params.push(updates.readByPeer ? 1 : 0);
     }
+    if (updates.deliveryStatus !== undefined) {
+      fields.push('delivery_status = ?');
+      params.push(updates.deliveryStatus ?? null);
+    }
+    if (updates.sentAt !== undefined) {
+      fields.push('sent_at = ?');
+      params.push(updates.sentAt ?? null);
+    }
+    if (updates.deliveredAt !== undefined) {
+      fields.push('delivered_at = ?');
+      params.push(updates.deliveredAt ?? null);
+    }
+    if (updates.readAt !== undefined) {
+      fields.push('read_at = ?');
+      params.push(updates.readAt ?? null);
+    }
 
     if (!fields.length) {
       return;
@@ -737,6 +825,12 @@ export const updateMessageFlagsInDb = async (
 
     await db.runAsync(`UPDATE messages SET ${fields.join(', ')} WHERE id = ?`, [...params, messageId]);
   });
+
+  export const getMessageByIdFromDb = async (messageId: string): Promise<MessageRecordInput | null> => {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<MessageRow>('SELECT * FROM messages WHERE id = ?', [messageId]);
+  return row ? mapMessageRow(row) : null;
+  };
 
   export const updateMessageDeletionInDb = async (
   messageId: string,

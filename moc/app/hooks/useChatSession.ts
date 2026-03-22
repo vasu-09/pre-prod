@@ -23,7 +23,7 @@ import {
   deleteMessagesFromDb,
   getMessagesForConversationFromDb,
   saveMessagesToDb,
-  updateMessageFlagsInDb,
+  updateMessageDeliveryInDb,
   type MessageRecordInput,
 } from '../services/database';
 import { E2EEClient, E2EEEnvelope, getE2EEClient } from '../services/e2ee';
@@ -55,6 +55,10 @@ export type DisplayMessage = {
   failed?: boolean;
   raw: InternalMessage;
   readByPeer?: boolean;
+  deliveryStatus?: string;
+  sentAt?: string | null;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 };
 
 type TypingUser = {
@@ -182,6 +186,10 @@ const toStoredMessage = (record: MessageRecordInput): InternalMessage => ({
   pending: record.pending,
   error: record.error,
   readByPeer: record.readByPeer,
+  deliveryStatus: record.deliveryStatus ?? undefined,
+  sentAt: record.sentAt ?? record.createdAt ?? null,
+  deliveredAt: record.deliveredAt ?? null,
+  readAt: record.readAt ?? null,
   e2ee: record.e2ee,
   deletedBySender: record.deletedBySender,
   deletedByReceiver: record.deletedByReceiver,
@@ -267,6 +275,10 @@ export const useChatSession = ({
         pending: message.pending,
         error: message.error,
         readByPeer: message.readByPeer,
+        deliveryStatus: message.deliveryStatus ?? null,
+        sentAt: message.sentAt ?? message.serverTs ?? new Date().toISOString(),
+        deliveredAt: message.deliveredAt ?? null,
+        readAt: message.readAt ?? null,
         deletedBySender: message.deletedBySender,
         deletedByReceiver: message.deletedByReceiver,
         deletedForEveryone: message.deletedForEveryone,
@@ -878,7 +890,7 @@ export const useChatSession = ({
           saveMessagesToDb([toDbRecord(selfUpdate, normalizedPayload)]).catch(err =>
             console.warn('Failed to persist self-echo message', err),
           );
-          updateMessageFlagsInDb(String(selfUpdate.messageId), {
+          updateMessageDeliveryInDb(String(selfUpdate.messageId), {
             pending: false,
             error: false,
           }).catch(err => console.warn('Failed to clear pending flag for self-echo', err));
@@ -1023,8 +1035,16 @@ export const useChatSession = ({
       }
       const deliveryStatus =
         typeof payload.deliveryStatus === 'string' ? payload.deliveryStatus : 'SENT_TO_WS';
-      const isReadStatus = deliveryStatus === 'READ';
       const activeUserId = currentUserIdRef.current;
+      const nowIso = new Date().toISOString();
+      const deliveredAt =
+        deliveryStatus === 'DELIVERED_TO_DEVICE' || deliveryStatus === 'READ'
+          ? (payload.deliveredAt ?? payload.serverTs ?? nowIso)
+          : undefined;
+      const readAt =
+        deliveryStatus === 'READ'
+          ? (payload.readAt ?? payload.serverTs ?? nowIso)
+          : undefined;
       mergeMessage({
         messageId: ackMessageId,
         roomId: roomId,
@@ -1034,14 +1054,21 @@ export const useChatSession = ({
         pending: false,
         error: false,
         deliveryStatus,
-        readByPeer: isReadStatus ? true : undefined,
+        sentAt: payload.serverTs ?? nowIso,
+        deliveredAt,
+        readAt,
+        readByPeer: deliveryStatus === 'READ' ? true : undefined,
       });
-       updateMessageFlagsInDb(ackMessageId, {
+       updateMessageDeliveryInDb(ackMessageId, {
         pending: false,
         error: false,
-        ...(isReadStatus ? { readByPeer: true } : {}),
+        deliveryStatus,
+        sentAt: payload.serverTs ?? nowIso,
+        deliveredAt,
+        readAt,
+        ...(deliveryStatus === 'READ' ? { readByPeer: true } : {}),
       }).catch(err =>
-        console.warn('Failed to clear pending flag for message', err),
+        console.warn('Failed to persist delivery status', err),
       );
     });
 
@@ -1070,10 +1097,42 @@ export const useChatSession = ({
         return;
       }
       const activeUserId = currentUserIdRef.current;
+      const peerReadAt = payload.lastReadAt ?? new Date().toISOString();
+      const lastReadMessageId = payload.lastReadMessageId ? String(payload.lastReadMessageId) : null;
       if (activeUserId != null && payload.userId === activeUserId) {
         if (resolvedRoomKey) {
           resetUnread(resolvedRoomKey);
         }
+        } else if (lastReadMessageId && activeUserId != null) {
+        setRawMessages(prev => {
+          const targetIndex = prev.findIndex(message => message.messageId === lastReadMessageId);
+          if (targetIndex < 0) {
+            return prev;
+          }
+          const next = prev.map((message, index) => {
+            if (message.senderId === activeUserId && index <= targetIndex) {
+              return {
+                ...message,
+                readByPeer: true,
+                deliveryStatus: 'READ',
+                readAt: message.readAt ?? peerReadAt,
+              };
+            }
+            return message;
+          });
+          const idsToPersist = next
+            .filter((message, index) => message.senderId === activeUserId && index <= targetIndex)
+            .map(message => message.messageId);
+
+          idsToPersist.forEach(id => {
+            updateMessageDeliveryInDb(id, {
+              readByPeer: true,
+              deliveryStatus: 'READ',
+              readAt: peerReadAt,
+            }).catch(err => console.warn('Failed to persist bulk read status', err));
+          });
+          return next;
+        });
       }
     });
 
@@ -1129,13 +1188,21 @@ export const useChatSession = ({
                 ...msg,
                 readByPeer: true,
                 deliveryStatus: 'READ',
+                readAt: payload.readAt ?? new Date().toISOString(),
               }
             : msg,
         ),
       );
       if (payload.messageId) {
-        updateMessageFlagsInDb(String(payload.messageId), { pending: false, error: false }).catch(err =>
-          console.warn('Failed to clear pending flag for message', err),
+        const readAt = payload.readAt ?? new Date().toISOString();
+        updateMessageDeliveryInDb(String(payload.messageId), {
+          pending: false,
+          error: false,
+          readByPeer: true,
+          deliveryStatus: 'READ',
+          readAt,
+        }).catch(err =>
+          console.warn('Failed to persist read status for message', err),
         );
       }
       });
@@ -1305,6 +1372,10 @@ export const useChatSession = ({
           failed: msg.error,
           raw: msg,
           readByPeer: msg.readByPeer,
+          deliveryStatus: msg.deliveryStatus,
+          sentAt: msg.sentAt ?? msg.serverTs ?? null,
+          deliveredAt: msg.deliveredAt ?? null,
+          readAt: msg.readAt ?? null,
         };
       });
   }, [rawMessages, currentUserId]);
@@ -1504,6 +1575,10 @@ export const useChatSession = ({
         serverTs: nowIso,
         pending: true,
         error: false,
+        deliveryStatus: 'PENDING',
+        sentAt: nowIso,
+        deliveredAt: null,
+        readAt: null,
         readByPeer: false,
         e2ee: true,
       };
@@ -1544,7 +1619,7 @@ export const useChatSession = ({
           pending: false,
           error: true,
         });
-        await updateMessageFlagsInDb(messageId, { pending: false, error: true }).catch(dbErr =>
+        await updateMessageDeliveryInDb(messageId, { pending: false, error: true }).catch(dbErr =>
           console.warn('Failed to persist failed send status', dbErr),
         );
         return { success: false as const, messageId };
@@ -1562,7 +1637,7 @@ export const useChatSession = ({
       sharedRoomKey,
       toDbRecord,
       saveMessagesToDb,
-      updateMessageFlagsInDb,
+      updateMessageDeliveryInDb,
     ],
   );
 
