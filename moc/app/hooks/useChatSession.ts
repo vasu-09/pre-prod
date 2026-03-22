@@ -36,11 +36,10 @@ import {
 } from '../services/messageCrypto';
 import {
   ChatMessageDto,
-  fetchRoomMessages,
   markRoomRead,
 } from '../services/roomsService';
 import stompClient, { StompFrame } from '../services/stompClient';
-import { mergeIncomingMessage, type InternalMessage } from './messageMerging';
+import { type InternalMessage } from './messageMerging';
 export type { InternalMessage } from './messageMerging';
 
 export type DisplayMessage = {
@@ -563,41 +562,6 @@ export const useChatSession = ({
   }, []);
 
   useEffect(() => {
-    if (!roomId) {
-      setRawMessages([]);
-      return;
-    }
-
-    let cancelled = false;
-    getMessagesForConversationFromDb(roomId, 100)
-      .then(stored => {
-        if (cancelled) {
-          return;
-        }
-        if (stored.length) {
-          const storedMessages = stored.map(toStoredMessage);
-          const deletedForUser = storedMessages.filter(isDeletedForCurrentUser);
-          const deletedIds = deletedForUser.map(message => message.messageId);
-          const visibleMessages = storedMessages.filter(
-            message => !deletedIds.includes(message.messageId),
-          );
-          if (deletedIds.length) {
-            deleteMessagesFromDb(deletedIds).catch(err =>
-              console.warn('Failed to purge locally deleted messages', err),
-            );
-          }
-          setRawMessages(visibleMessages);
-          const last = visibleMessages[visibleMessages.length - 1];
-          latestMessageIdRef.current = last?.messageId ?? null;
-        }
-      }).catch(err => console.warn('Failed to load cached messages', err));
-
-    return () => {
-      cancelled = true;
-    };
-  }, [roomId, deleteMessagesFromDb, isDeletedForCurrentUser]);
-
-  useEffect(() => {
     if (!roomId || !resolvedRoomKey) {
       return;
     }
@@ -625,114 +589,34 @@ export const useChatSession = ({
 
   const loadHistory = useCallback(async () => {
     if (!roomId) {
+      setRawMessages([]);
+      setError(null);
       return;
     }
+
     setIsLoading(true);
     setError(null);
-    try {
-      const data = await fetchRoomMessages(roomId, { limit: 50 });
-      const ordered = data.slice().reverse();
-      const client = e2eeClient;
-      const processed: InternalMessage[] = await Promise.all(
-        ordered.map(async dto => {
-          const base = toInternalMessage(dto);
-          const aad = normalizeBinary(dto.aad);
-          const iv = normalizeBinary(dto.iv);
-          const ciphertext = normalizeBinary(dto.ciphertext);
-          let text = dto.body ?? null;
-          let failed = false;
-          let debugBody: string | null = null;
-          const encryptedPayload: EncryptedPayload | null =
-            ciphertext && iv
-              ? {
-                  ciphertext,
-                  iv,
-                  aad: aad ?? undefined,
-                }
-              : null;
-          if (dto.e2ee && ciphertext && aad && iv && dto.keyRef) {
-            const envelope: E2EEEnvelope = {
-              messageId: dto.messageId,
-              aad,
-              iv,
-              ciphertext,
-              keyRef: dto.keyRef,
-            };
-            const fromSelf = currentUserId != null && dto.senderId === currentUserId;
 
-            if (client) {
-              try {
-                text = await client.decryptEnvelope(envelope, Boolean(fromSelf), {
-                  senderId: dto.senderId,
-                  sessionId: dto.keyRef ?? null,
-                  senderDeviceId: dto.senderDeviceId ?? null,
-                });
-              } catch (decryptErr) {
-                console.warn('Failed to decrypt history message', decryptErr);
-                text = DECRYPTION_PENDING_MESSAGE;
-                failed = true;
-                debugBody = null;
-              }
-            } else {
-              text = DECRYPTION_PENDING_MESSAGE;
-              failed = true;
-              debugBody = null;
-            }
-          } else if (dto.e2ee && encryptedPayload && sharedRoomKey) {
-            try {
-              text = await decryptMessage(encryptedPayload, sharedRoomKey);
-            } catch (decryptErr) {
-              console.warn('Failed to decrypt symmetric history message', decryptErr);
-              text = DECRYPTION_PENDING_MESSAGE;
-              failed = true;
-              debugBody = null;
-            }
-          } else if (dto.e2ee && encryptedPayload) {
-            text = DECRYPTION_PENDING_MESSAGE;
-            failed = true;
-            debugBody = null;
-          }
-          return {
-            ...base,
-            body: text,
-            decryptionFailed: failed,
-            debugBody,
-            ciphertext: ciphertext ?? null,
-            iv: iv ?? null,
-            aad: aad ?? null,
-            keyRef: dto.keyRef ?? null,
-            senderDeviceId: dto.senderDeviceId ?? null,
-          };
-        }),
-      );
-      const deletedForUser = processed.filter(isDeletedForCurrentUser);
+    try {
+      const stored = await getMessagesForConversationFromDb(roomId, 100);
+      const storedMessages = stored.map(toStoredMessage);
+
+      const deletedForUser = storedMessages.filter(isDeletedForCurrentUser);
       const deletedIds = deletedForUser.map(message => message.messageId);
-      const visibleMessages = processed.filter(
+      const visibleMessages = storedMessages.filter(
         message => !deletedIds.includes(message.messageId),
       );
-      setRawMessages(prev => {
-        let merged = prev.filter(message => !deletedIds.includes(message.messageId));
-        for (const msg of visibleMessages) {
-          merged = mergeIncomingMessage(merged, msg);
-        }
-        return merged;
-      });
-      if (roomId) {
-        const records = visibleMessages.map(msg => toDbRecord(msg));
-        try {
-          await saveMessagesToDb(records);
-        } catch (dbErr) {
-          console.warn('Failed to persist history messages', dbErr);
-        }
-        if (deletedIds.length) {
-          deleteMessagesFromDb(deletedIds).catch(err =>
-            console.warn('Failed to delete messages removed for user', err),
-          );
-        }
+      setRawMessages(visibleMessages);
+
+      if (deletedIds.length) {
+        deleteMessagesFromDb(deletedIds).catch(err =>
+          console.warn('Failed to purge locally deleted messages', err),
+        );
       }
+
       const lastVisible = visibleMessages[visibleMessages.length - 1];
+      latestMessageIdRef.current = lastVisible?.messageId ?? null;
       if (lastVisible && resolvedRoomKey) {
-        latestMessageIdRef.current = lastVisible.messageId;
         updateRoomActivity(resolvedRoomKey, {
           messageId: lastVisible.messageId,
           text: lastVisible.body ?? null,
@@ -743,16 +627,10 @@ export const useChatSession = ({
       if (resolvedRoomKey) {
         resetUnread(resolvedRoomKey);
       }
-    } catch (err: any) {
-      const status = err?.response?.status;
-      if (status === 403 || status === 404) {
-        setRawMessages([]);
-        setError(null);
-        return;
-      }
-
-      console.warn('Failed to load room history', err);
-      setError('Unable to load conversation');
+    } catch (err) {
+      console.warn('Failed to load cached room history', err);
+      setRawMessages([]);
+      setError('Unable to load local conversation');
     } finally {
       setIsLoading(false);
     }
@@ -761,11 +639,6 @@ export const useChatSession = ({
     resolvedRoomKey,
     updateRoomActivity,
     resetUnread,
-    e2eeClient,
-    currentUserId,
-    sharedRoomKey,
-    toDbRecord,
-    saveMessagesToDb,
     deleteMessagesFromDb,
     isDeletedForCurrentUser,
   ]);

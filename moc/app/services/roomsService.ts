@@ -28,12 +28,6 @@ export interface ChatMessageDto {
   systemMessage?: boolean;
 }
 
-type HistoryParams = {
-  beforeTs?: string | Date;
-  beforeId?: string | number;
-  limit?: number;
-};
-
 export const createDirectRoom = async (
   participantId: number,
 ): Promise<ChatRoomResponse> => {
@@ -46,23 +40,6 @@ export const createDirectRoom = async (
   });
 
   return data;
-};
-
-export const fetchRoomMessages = async (
-  roomId: number,
-  params: HistoryParams = {},
-): Promise<ChatMessageDto[]> => {
-  const query = { ...params };
-  if (query.beforeTs instanceof Date) {
-    query.beforeTs = query.beforeTs.toISOString();
-  }
-
-  const { data } = await apiClient.get<ChatMessageDto[]>(
-    `/api/rooms/${roomId}/messages`,
-    { params: query },
-  );
-
-  return Array.isArray(data) ? data : [];
 };
 
 export const markRoomRead = async (

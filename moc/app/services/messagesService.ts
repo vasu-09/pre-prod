@@ -2,11 +2,6 @@ import { sendDeleteForEveryone, sendDeleteForMe } from '../constants/stompEndpoi
 import apiClient from './apiClient';
 import stompClient from './stompClient';
 
-export const fetchMessageHistory = async (roomKey: string) => {
-  const { data } = await apiClient.get(`/api/messages/${roomKey}/history`);
-  return Array.isArray(data) ? data : [];
-};
-
 export const deleteMessageForMe = async (messageId: string | number) => {
   await stompClient.publish(sendDeleteForMe(messageId), {});
 };

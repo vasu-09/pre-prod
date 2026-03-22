@@ -2545,11 +2545,11 @@ const makeReplyPayload = useCallback(
           </View>
 
       {/* Chat messages */}
-          {historyError ? (
-            <View style={styles.historyErrorBanner}>
-              <Text style={styles.historyErrorText}>{historyError}</Text>
-            </View>
-          ) : null}
+          {historyError && filteredMessages.length === 0 ? (
+          <View style={styles.historyErrorBanner}>
+            <Text style={styles.historyErrorText}>{historyError}</Text>
+          </View>
+        ) : null}
           
           <BodyWrapper
             style={styles.chatBody}
