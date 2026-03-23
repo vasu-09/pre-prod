@@ -17,21 +17,24 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+
 import { useChatRegistry } from '../context/ChatContext';
 import { useContactSync } from '../hooks/useContactSync';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import { ensureContactsSynced, searchCachedContacts } from '../services/contactSyncCoordinator';
 import { getE2EEClient } from '../services/e2ee';
+import { flushListMutationQueue } from '../services/listMutationQueue';
 import { createDirectRoom } from '../services/roomsService';
 
 const windowHeight = Dimensions.get('window').height;
 
-
-
-// Chats Screen
-
-// Main MoC Screen
 const MocScreen = () => {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const Tab = createMaterialTopTabNavigator();
+  const { rooms, upsertRoom } = useChatRegistry();
+  const { isOnline } = useNetworkStatus();
+
   const [searchActive, setSearchActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [contactResults, setContactResults] = useState([]);
@@ -39,13 +42,10 @@ const MocScreen = () => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [createError, setCreateError] = useState('');
   const [creatingRoomFor, setCreatingRoomFor] = useState(null);
-  const Tab = createMaterialTopTabNavigator();
+  const [statusMessage, setStatusMessage] = useState('');
+
   const hideMenu = () => setMenuVisible(false);
   const topBarHeight = 50 + insets.top;
-  const { rooms, upsertRoom } = useChatRegistry();
-
-  const router = useRouter();
-
   const hasSearchQuery = searchQuery.trim().length > 0;
 
   const {
@@ -54,21 +54,151 @@ const MocScreen = () => {
     error: matchedSuggestionsError,
     permissionDenied: isPermissionDeniedForSuggestions,
     refresh: refreshMatchedSuggestions,
-  } = useContactSync({ selector: 'matched', refreshOnMount: true, staleMs: 5 * 60 * 1000 });
+  } = useContactSync({
+    selector: 'matched',
+    refreshOnMount: false,
+    staleMs: 5 * 60 * 1000,
+  });
 
-const getAvatarUri = useCallback((contact) => {
-  if (typeof contact?.imageUri !== 'string') {
-    return null;
-  }
+  const getAvatarUri = useCallback((contact) => {
+    if (typeof contact?.imageUri !== 'string') {
+      return null;
+    }
 
-  const trimmed = contact.imageUri.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}, []);
+    const trimmed = contact.imageUri.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }, []);
+
+  const openRoom = useCallback(
+    (room, fallbackTitle, fallbackPhone, fallbackImage, fallbackPeerId) => {
+      router.push({
+        pathname: '/screens/ChatDetailScreen',
+        params: {
+          roomId: String(room.id),
+          roomKey: room.roomKey,
+          title: room.title ?? fallbackTitle,
+          peerId:
+            room.peerId != null
+              ? String(room.peerId)
+              : fallbackPeerId != null
+                ? String(fallbackPeerId)
+                : undefined,
+          phone: room.peerPhone ?? fallbackPhone ?? undefined,
+          image: room.avatar ?? fallbackImage ?? undefined,
+        },
+      });
+    },
+    [router],
+  );
 
   useEffect(() => {
-    console.log("[MOC] rooms changed, count =", rooms.length, rooms);
-  }, [rooms]);
+    let cancelled = false;
 
+    const bootstrapOnlineWork = async () => {
+      if (!isOnline) {
+        setStatusMessage('Offline — showing saved chats and contacts.');
+        return;
+      }
+
+      try {
+        await Promise.all([
+          refreshMatchedSuggestions(false),
+          flushListMutationQueue(),
+          getE2EEClient().catch((err) => {
+            console.warn('Failed to bootstrap E2EE client', err);
+          }),
+        ]);
+
+        if (!cancelled) {
+          setStatusMessage('');
+        }
+      } catch (error) {
+        console.warn('Failed online bootstrap for MocScreen', error);
+        if (!cancelled) {
+          setStatusMessage('Showing saved data. Background sync could not complete.');
+        }
+      }
+    };
+
+    void bootstrapOnlineWork();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline, refreshMatchedSuggestions]);
+
+  useEffect(() => {
+    if (!searchActive) {
+      return;
+  }
+
+    let mounted = true;
+    const trimmed = searchQuery.trim();
+
+    if (!trimmed) {
+      setContactResults([]);
+      setContactsError('');
+      return () => {
+        mounted = false;
+      };
+    }
+
+    searchCachedContacts(trimmed)
+      .then((results) => {
+        if (mounted) {
+          setContactResults(results);
+          setContactsError('');
+        }
+      })
+      .catch((error) => {
+        console.warn('Unable to search cached contacts', error);
+        if (mounted) {
+          setContactsError('Unable to search saved contacts right now.');
+        }
+      });
+
+  return () => {
+      mounted = false;
+    };
+  }, [searchActive, searchQuery]);
+
+  useEffect(() => {
+    if (!searchActive || !isOnline) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const refreshContactCache = async () => {
+      const result = await ensureContactsSynced({
+        force: false,
+        staleMs: 5 * 60 * 1000,
+      });
+
+      if (cancelled) return;
+
+      if (result.error) {
+        setStatusMessage('Using saved contacts. Live refresh failed.');
+    }
+
+    if (searchQuery.trim()) {
+        try {
+          const refreshed = await searchCachedContacts(searchQuery.trim());
+          if (!cancelled) {
+            setContactResults(refreshed);
+          }
+        } catch (error) {
+          console.warn('Unable to refresh searched contacts after sync', error);
+        }
+      }
+    };
+
+    void refreshContactCache();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [searchActive, isOnline, searchQuery]);
 
   const handleInvite = useCallback(async (contact) => {
     const displayName = contact?.name?.trim();
@@ -83,75 +213,82 @@ const getAvatarUri = useCallback((contact) => {
     }
   }, []);
 
-  const renderAvatar = useCallback((contact) => {
-  const avatarUri = getAvatarUri(contact);
+  const renderAvatar = useCallback(
+    (contact) => {
+      const avatarUri = getAvatarUri(contact);
 
-  if (avatarUri) {
-    return <Image source={{ uri: avatarUri }} style={styles.contactAvatar} />;
-  }
+    if (avatarUri) {
+      return <Image source={{ uri: avatarUri }} style={styles.contactAvatar} />;
+    }
 
   return (
-    <View style={[styles.contactAvatar, styles.avatarPlaceholder]}>
-      <Icon name="person" size={24} color="#888" />
-    </View>
+        <View style={[styles.contactAvatar, styles.avatarPlaceholder]}>
+          <Icon name="person" size={24} color="#888" />
+        </View>
+      );
+    },
+    [getAvatarUri],
   );
-}, [getAvatarUri]);
 
-  useEffect(() => {
-    getE2EEClient().catch(err =>
-      console.warn('Failed to bootstrap E2EE client after login', err),
-    );
-  }, []);
-
-   const handleStartDirectChat = useCallback(
+  const handleStartDirectChat = useCallback(
     async (contact) => {
       const participantId = Number(contact?.matchUserId);
+
        if (!Number.isInteger(participantId) || participantId <= 0) {
         setCreateError('Contact is missing a valid MoC account.');
         return;
       }
 
       setCreateError('');
+
       const roomTitle = contact?.name || contact?.matchPhone || 'Chat';
       const roomAvatar = getAvatarUri(contact);
       const tracker = contact?.id ?? contact?.matchPhone ?? String(participantId);
+      const phone = contact?.matchPhone ?? contact?.phoneNumbers?.[0]?.number ?? null;
+
+      const existingRoom = rooms.find((room) => Number(room?.peerId) === participantId);
+
+      if (existingRoom) {
+        openRoom(existingRoom, roomTitle, phone, roomAvatar, participantId);
+        return;
+      }
+
+      if (!isOnline) {
+        setCreateError(
+          'You are offline. You can open existing chats, but you cannot create a new direct conversation right now.',
+        );
+        return;
+      }
 
       try {
         setCreatingRoomFor(tracker);
+
         const room = await createDirectRoom(participantId);
-        upsertRoom({
+
+        const normalizedRoom = {
           id: room.id,
           roomKey: room.roomId,
           title: roomTitle,
           avatar: roomAvatar,
           peerId: participantId,
-          peerPhone: contact?.matchPhone ?? contact?.phoneNumbers?.[0]?.number ?? null,
-        });
-        router.push({
-          pathname: '/screens/ChatDetailScreen',
-          params: {
-            roomId: String(room.id),
-            roomKey: room.roomId,
-            title: roomTitle,
-            peerId: String(participantId),
-            phone: contact?.matchPhone ?? contact?.phoneNumbers?.[0]?.number ?? '',
-            image: roomAvatar ?? undefined,
-            },
-          });
+          peerPhone: phone,
+        };
+
+        upsertRoom(normalizedRoom);
+        openRoom(normalizedRoom, roomTitle, phone, roomAvatar, participantId);
       } catch (err) {
         console.warn('Unable to start direct chat', err);
-        setCreateError('Unable to start a conversation right now. Please try again.');
+        setCreateError('Unable to start a conversation right now.');
       } finally {
         setCreatingRoomFor(null);
       }
     },
-    [router, upsertRoom, getAvatarUri],
+    [getAvatarUri, isOnline, openRoom, rooms, upsertRoom],
   );
 
-
   const SearchResults = ({ contactResults: results, onInvite }) => {
-    const matchedContacts = (results ?? []).filter(contact => contact?.matchUserId);
-    const inviteContacts = (results ?? []).filter(contact => !contact?.matchUserId);
+    const matchedContacts = (results ?? []).filter((contact) => contact?.matchUserId);
+    const inviteContacts = (results ?? []).filter((contact) => !contact?.matchUserId);
 
     if (!matchedContacts.length && !inviteContacts.length) {
       return <Text style={styles.emptyState}>No contacts found.</Text>;
@@ -175,7 +312,7 @@ const getAvatarUri = useCallback((contact) => {
             <Text style={styles.contactName}>{fallbackName}</Text>
             {phoneDisplay ? <Text style={styles.contactPhone}>{phoneDisplay}</Text> : null}
           </View>
-        {isCreating ? <ActivityIndicator size="small" color="#1f6ea7" /> : null}
+          {isCreating ? <ActivityIndicator size="small" color="#1f6ea7" /> : null}
         </TouchableOpacity>
       );
     };
@@ -213,7 +350,7 @@ const getAvatarUri = useCallback((contact) => {
 
         {inviteContacts.length ? (
           <>
-            <Text style={[styles.resultGroupLabel, styles.inviteLabel]}>Invite to MOC</Text>
+            <Text style={[styles.resultGroupLabel, styles.inviteLabel]}>Invite to MoC</Text>
             {inviteContacts.map(renderInviteRow)}
           </>
         ) : null}
@@ -221,62 +358,7 @@ const getAvatarUri = useCallback((contact) => {
     );
   };
 
-  useEffect(() => {
-    if (!searchActive) {
-      return;
-    }
-
-      ensureContactsSynced({ force: false, staleMs: 5 * 60 * 1000 }).then(() => {
-      if (searchQuery.trim()) {
-        searchCachedContacts(searchQuery.trim())
-          .then(setContactResults)
-          .catch((error) => {
-            console.warn('Unable to refresh search contacts', error);
-          });
-      }
-      refreshMatchedSuggestions(false).catch((error) => {
-        console.warn('Unable to refresh matched contacts', error);
-      });
-       });
-  }, [refreshMatchedSuggestions, searchActive, searchQuery]);
-
-  useEffect(() => {
-    if (!searchActive) {
-      return;
-    }
-
-    let isMounted = true;
-
-    const runSearch = async () => {
-       const trimmed = searchQuery.trim();
-
-      if (!trimmed) {
-        setContactResults([]);
-        setContactsError('');
-        return;
-      }
-      try {
-        const results = await searchCachedContacts(trimmed);
-
-        if (isMounted) {
-          setContactResults(results);
-        }
-      } catch (error) {
-        console.warn('Unable to search contacts', error);
-        if (isMounted) {
-          setContactsError('Unable to search contacts right now.');
-        }
-      }
-    };
-
-    runSearch();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [searchActive, searchQuery]);
-
-  const onMenuSelect = action => {
+  const onMenuSelect = (action) => {
     hideMenu();
     switch (action) {
       case 'new-group':
@@ -289,10 +371,12 @@ const getAvatarUri = useCallback((contact) => {
         router.push('/screens/ListsScreen');
         return;
       case 'settings':
-        // TODO
         return router.push('/screens/SettingsScreen');
+      default:
+        return;
     }
   };
+
   const formatLastTime = useCallback((iso) => {
     if (!iso) return '';
     try {
@@ -309,15 +393,20 @@ const getAvatarUri = useCallback((contact) => {
       return rooms;
     }
     const q = searchQuery.trim().toLowerCase();
-    return rooms.filter(room => room.title?.toLowerCase().includes(q));
+    return rooms.filter((room) => room.title?.toLowerCase().includes(q));
   }, [rooms, searchQuery]);
  
   const ChatsScreen = () => {
-    const router = useRouter();
     const hasChats = rooms.length > 0;
     
     return (
       <View style={styles.chatsWrapper}>
+        {!!statusMessage ? (
+          <View style={styles.infoBanner}>
+            <Text style={styles.infoBannerText}>{statusMessage}</Text>
+          </View>
+        ) : null}
+
         <ScrollView
           contentContainerStyle={
             hasChats
@@ -326,30 +415,24 @@ const getAvatarUri = useCallback((contact) => {
           }
         >
           {hasChats ? (
-            filteredRooms.map(room => {
-              const lastMessage = room.lastMessage?.text ?? 'No messages yet';
-              const time = formatLastTime(room.lastMessage?.at);
+            filteredRooms.map((room) => {
+              const lastMessage =
+                room.lastMessage?.text ?? room.lastMessage?.plaintext ?? 'No messages yet';
+              const time = formatLastTime(room.lastMessage?.at ?? room.lastMessage?.createdAt);
+
               const avatarUri =
                 typeof room.avatar === 'string' && room.avatar.trim().length
                   ? room.avatar.trim()
                   : room.avatar;
+                  
               const avatarSource = avatarUri ? { uri: avatarUri } : null;
+
               return (
                 <TouchableOpacity
                   key={room.roomKey}
                   style={styles.chatItem}
                   onPress={() =>
-                    router.push({
-                      pathname: '/screens/ChatDetailScreen',
-                      params: {
-                        roomId: String(room.id),
-                        roomKey: room.roomKey,
-                        title: room.title,
-                        peerId: room.peerId != null ? String(room.peerId) : undefined,
-                        phone: room.peerPhone ?? undefined,
-                        image: room.avatar ?? undefined,
-                      },
-                    })
+                    openRoom(room, room.title, room.peerPhone, room.avatar, room.peerId)
                   }
                 >
                   {avatarSource ? (
@@ -359,6 +442,7 @@ const getAvatarUri = useCallback((contact) => {
                       <Icon name="person" size={24} color="#7a7a7a" />
                     </View>
                   )}
+
                   <View style={styles.chatText}>
                     <Text style={styles.chatName}>{room.title}</Text>
                     <Text style={styles.chatLastMessage} numberOfLines={1}>
@@ -367,11 +451,11 @@ const getAvatarUri = useCallback((contact) => {
                   </View>
                   <View style={styles.chatMeta}>
                     <Text style={styles.chatTime}>{time}</Text>
-                    {room.unreadCount > 0 && (
+                    {room.unreadCount > 0 ? (
                       <View style={styles.unreadBadge}>
                         <Text style={styles.unreadText}>{room.unreadCount}</Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               );
@@ -380,61 +464,78 @@ const getAvatarUri = useCallback((contact) => {
             <View style={styles.centerContent}>
               <Text style={styles.title}>Start chatting</Text>
               <Text style={styles.subtitle}>
-                Chat with your contacts or invite a friend to MOC.
+                Chat with your contacts or invite a friend to MoC.
               </Text>
 
               <View style={styles.inviteSection}>
                 {isLoadingMatchedSuggestions ? (
-                <Text style={styles.subtitle}>Loading MoC contacts…</Text>
-              ) : null}
-              {matchedSuggestionsError ? <Text style={styles.errorText}>{matchedSuggestionsError}</Text> : null}
-              {isPermissionDeniedForSuggestions && !matchedSuggestions.length ? (
-                <Text style={styles.subtitle}>Allow contacts access to discover friends on MoC.</Text>
-              ) : null}
-              {!isLoadingMatchedSuggestions && !matchedSuggestions.length ? (
-                <Text style={styles.subtitle}>No matched contacts on MoC yet.</Text>
-              ) : null}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.avatarRow}
-                contentContainerStyle={styles.avatarRowContent}
-              >
-                {matchedSuggestions.map((contact, i) => (
-                  <TouchableOpacity
-                    style={styles.avatarContainer}
-                    key={contact?.matchUserId != null ? String(contact.matchUserId) : String(contact?.id ?? i)}
-                    onPress={() => handleStartDirectChat(contact)}
-                  >
-                    {getAvatarUri(contact) ? (
-                      <Image source={{ uri: getAvatarUri(contact) }} style={styles.avatar} />
-                    ) : (
-                      <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                        <Icon name="person" size={22} color="#888" />
-                      </View>
-                    )}
-                    <Text style={styles.avatarName} numberOfLines={1}>
-                      {contact?.name || contact?.matchPhone || 'MoC user'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+                <Text style={styles.subtitle}>Loading saved MoC contacts…</Text>
+                ) : null}
 
+                {matchedSuggestionsError ? (
+                  <Text style={styles.errorText}>{matchedSuggestionsError}</Text>
+                ) : null}
+
+                {isPermissionDeniedForSuggestions && !matchedSuggestions.length ? (
+                  <Text style={styles.subtitle}>
+                    Allow contacts access to discover friends on MoC.
+                  </Text>
+                ) : null}
+
+                {!isLoadingMatchedSuggestions && !matchedSuggestions.length ? (
+                  <Text style={styles.subtitle}>
+                    {isOnline
+                      ? 'No matched contacts on MoC yet.'
+                      : 'Offline — no matched contacts are cached yet.'}
+                  </Text>
+                ) : null}
+
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.avatarRow}
+                  contentContainerStyle={styles.avatarRowContent}
+                >
+                  {matchedSuggestions.map((contact, i) => (
+                    <TouchableOpacity
+                      style={styles.avatarContainer}
+                      key={
+                        contact?.matchUserId != null
+                          ? String(contact.matchUserId)
+                          : String(contact?.id ?? i)
+                      }
+                      onPress={() => handleStartDirectChat(contact)}
+                    >
+                      {getAvatarUri(contact) ? (
+                        <Image source={{ uri: getAvatarUri(contact) }} style={styles.avatar} />
+                      ) : (
+                        <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                          <Icon name="person" size={22} color="#888" />
+                        </View>
+                      )}
+
+                      <Text style={styles.avatarName} numberOfLines={1}>
+                        {contact?.name || contact?.matchPhone || 'MoC user'}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                
                 <TouchableOpacity
-                style={styles.inviteButton}
-                onPress={() => router.push('/screens/InviteContactsScreen')}
-              >
-                <Text style={styles.inviteText}>Invite a friend</Text>
-              </TouchableOpacity>
+                  style={styles.inviteButton}
+                  onPress={() => router.push('/screens/InviteContactsScreen')}
+                >
+                  <Text style={styles.inviteText}>Invite a friend</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-            </View>
-            )}
-            </ScrollView>
+          )}
+          </ScrollView>
 
-     <TouchableOpacity
-        style={[styles.fab, { bottom: insets.bottom + 16 }]}
-        onPress={() => router.push('/screens/ListsScreen')}
-      >
+      <TouchableOpacity
+          style={[styles.fab, { bottom: insets.bottom + 16 }]}
+          onPress={() => router.push('/screens/ListsScreen')}
+        >
           <Icon name="playlist-add" size={20} color="#fff" />
           <Text style={styles.fabText}>create list</Text>
         </TouchableOpacity>
@@ -449,19 +550,16 @@ const getAvatarUri = useCallback((contact) => {
     </View>
   );
 
-  const TopBar = () => {
-    // header height (50) + safe‐area top
-    
-    return (
-      <View
-        style={[
-          styles.topBar,
-          searchActive && styles.topBarSearch,
-         { paddingTop: insets.top, minHeight: topBarHeight },
-        ]}
-      >
-        {searchActive ? (
-          <>
+  const TopBar = () => (
+    <View
+      style={[
+        styles.topBar,
+        searchActive && styles.topBarSearch,
+        { paddingTop: insets.top, minHeight: topBarHeight },
+      ]}
+    >
+      {searchActive ? (
+        <>
           <TouchableOpacity
             onPress={() => {
               setSearchActive(false);
@@ -473,6 +571,7 @@ const getAvatarUri = useCallback((contact) => {
           >
             <Icon name="arrow-back" size={22} color="#1f6ea7" />
           </TouchableOpacity>
+
           <TextInput
             style={styles.searchInput}
             placeholder="Search contacts"
@@ -483,33 +582,30 @@ const getAvatarUri = useCallback((contact) => {
           />
         </>
         ) : (
-          <>
-            <Text style={styles.appName}>MOC</Text>
-            <View style={styles.iconGroup}>
-              <TouchableOpacity
-                onPress={() => {
-                  setSearchActive(true);
-                  setSearchQuery('');
-                  setContactsError('');
-                  hideMenu();
-                }}
-              >
-                <Icon name="search" size={22} color="#fff" style={styles.icon} />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setMenuVisible(v => !v)}>
-                <Icon name="more-vert" size={22} color="#fff" style={styles.icon} />
-              </TouchableOpacity>
-            </View>
-          </>
-        )}  
-      </View>
-    );
-  };
+        <>
+          <Text style={styles.appName}>MOC</Text>
+          <View style={styles.iconGroup}>
+            <TouchableOpacity
+              onPress={() => {
+                setSearchActive(true);
+                setSearchQuery('');
+                setContactsError('');
+                hideMenu();
+              }}
+            >
+              <Icon name="search" size={22} color="#fff" style={styles.icon} />
+            </TouchableOpacity>
 
-  const menuTop = topBarHeight;
+  <TouchableOpacity onPress={() => setMenuVisible((v) => !v)}>
+              <Icon name="more-vert" size={22} color="#fff" style={styles.icon} />
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+    </View>
+  );
 
-
-  
+  const menuTop = topBarHeight;  
  
   return (
     <View style={{ flex: 1 }}>
@@ -520,31 +616,27 @@ const getAvatarUri = useCallback((contact) => {
 
       <TopBar />
 
-     {menuVisible && !searchActive && (
+      {menuVisible && !searchActive ? (
         <>
-          <Pressable
-            style={styles.menuOverlay}
-            onPress={hideMenu}
-          />
-          <TouchableOpacity
-            style={styles.menuOverlay}
-            activeOpacity={1}
-            onPress={hideMenu}
-          />
+          <Pressable style={styles.menuOverlay} onPress={hideMenu} />
+          <TouchableOpacity style={styles.menuOverlay} activeOpacity={1} onPress={hideMenu} />
           <View style={[styles.menuContainer, { top: menuTop }]}>
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => onMenuSelect('settings')}
-            >
+            <TouchableOpacity style={styles.menuItem} onPress={() => onMenuSelect('settings')}>
               <Text style={styles.menuLabel}>Settings</Text>
             </TouchableOpacity>
           </View>
         </>
-      )}
+       ) : null}
       
 
       {searchActive ? (
         <View style={styles.searchContainer}>
+          {!isOnline ? (
+            <View style={styles.infoBanner}>
+              <Text style={styles.infoBannerText}>Offline — searching saved contacts only.</Text>
+            </View>
+          ) : null}
+
           {contactsError ? (
             <View style={styles.loaderWrapper}>
               <Text style={styles.errorText}>{contactsError}</Text>
@@ -558,10 +650,7 @@ const getAvatarUri = useCallback((contact) => {
               <Text style={styles.searchSectionLabel}>Contacts</Text>
               {createError ? <Text style={styles.errorText}>{createError}</Text> : null}
 
-               <SearchResults
-                contactResults={contactResults}
-                onInvite={handleInvite}
-              />
+               <SearchResults contactResults={contactResults} onInvite={handleInvite} />
             </ScrollView>
           )}
         </View>
@@ -643,7 +732,7 @@ const styles = StyleSheet.create({
   contactResultText: { flex: 1 },
   contactName: { fontWeight: 'bold', fontSize: 16, color: '#111' },
   contactPhone: { color: '#555', marginTop: 2 },
-   resultGroupLabel: {
+  resultGroupLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: '#1f6ea7',
@@ -673,7 +762,19 @@ const styles = StyleSheet.create({
     marginTop: 16,
     color: '#777',
   },
-
+  
+  infoBanner: {
+    backgroundColor: '#eaf3fb',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#c8dff3',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  infoBannerText: {
+    color: '#1f6ea7',
+    fontSize: 13,
+    fontWeight: '500',
+  },
 
   // Chats wrapper
   chatsWrapper: { flex: 1, backgroundColor: '#f6f6f6' },
