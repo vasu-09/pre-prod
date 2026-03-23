@@ -4,11 +4,18 @@ import { Redirect, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { ensureValidAccessToken } from './services/apiClient';
-import { getRefreshToken } from './services/authStorage';
+import { getStoredSession } from './services/authStorage';
 
 const PERMISSIONS_ROUTE = '/screens/PermissionsScreen' as Href;
 const LOGIN_ROUTE = '/screens/LoginScreen' as Href;
 const HOME_ROUTE = '/screens/MocScreen' as Href;
+
+const hasAnyStoredSession = (session: {
+  accessToken: string | null;
+  refreshToken: string | null;
+}) => {
+  return Boolean(session.accessToken || session.refreshToken);
+};
 
 export default function Index() {
   const [targetRoute, setTargetRoute] = useState<Href | null>(null);
@@ -27,12 +34,12 @@ export default function Index() {
           return;
         }
 
-             const refreshToken = await getRefreshToken();
+        const storedSession = await getStoredSession();
 
         if (!isMounted) return;
 
 
-           if (!refreshToken) {
+        if (!hasAnyStoredSession(storedSession)) {
           setTargetRoute(LOGIN_ROUTE);
           return;
         }
@@ -46,10 +53,25 @@ export default function Index() {
           return;
         }
 
+        const sessionAfterRefreshAttempt = await getStoredSession();
+
+        if (!isMounted) return;
+
+        if (hasAnyStoredSession(sessionAfterRefreshAttempt)) {
+          setTargetRoute(HOME_ROUTE);
+          return;
+        }
+
         setTargetRoute(LOGIN_ROUTE);
       } catch (err) {
         console.warn('Bootstrap routing failed', err);
-        if (isMounted) {
+        
+        if (!isMounted) return;
+
+        try {
+          const fallbackSession = await getStoredSession();
+          setTargetRoute(hasAnyStoredSession(fallbackSession) ? HOME_ROUTE : LOGIN_ROUTE);
+        } catch {
           setTargetRoute(LOGIN_ROUTE);
         }
       }

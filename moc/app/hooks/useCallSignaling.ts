@@ -110,6 +110,7 @@ export const useCallSignaling = (options: UseCallSignalingOptions = {}) => {
     const unsubscribe = callSignaling.subscribeTurn(credentials => {
       onTurnCredentialsRef.current?.(credentials);
     });
+    return () => unsubscribe();
   }, []);
 
   const sendInvite = useCallback(

@@ -1106,9 +1106,13 @@ const makeReplyPayload = useCallback(
       if (!roomId || Number.isNaN(eventRoomId) || eventRoomId !== roomId) {
         return;
       }
+      const fromId = typeof event.from === 'number' ? event.from : Number(event.from);
+      if (currentUserId == null || Number.isNaN(fromId) || fromId !== currentUserId) {
+        return;
+      }
       routeIncomingCall(event);
     },
-    [roomId, routeIncomingCall],
+    [currentUserId, roomId, routeIncomingCall],
   );
 
   const handleQueueEvent = useCallback(
@@ -1133,11 +1137,8 @@ const makeReplyPayload = useCallback(
         }
         return;
       }
-      if (event.type === 'call.invite') {
-        routeIncomingCall(event);
-      }
     },
-    [roomId, routeIncomingCall],
+    [roomId],
   );
 
   const { sendInviteDefault: sendRoomCallInvite } = useCallSignalingHook({

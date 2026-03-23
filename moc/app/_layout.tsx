@@ -6,6 +6,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import GlobalCallHandler from './components/GlobalCallHandler';
 import { ChatProvider } from './context/ChatContext';
 import { initializeDatabase } from './services/database';
 
@@ -23,6 +24,7 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <SafeAreaProvider>
         <ChatProvider>
+          <GlobalCallHandler />
           <Stack initialRouteName="screens/PermissionsScreen" screenOptions={{ headerShown: false }}>
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="screens/PermissionsScreen" options={{ headerShown: false }} />
@@ -34,6 +36,10 @@ export default function RootLayout() {
             <Stack.Screen name="screens/ViewListScreen" options={{ headerShown: false }} />
             <Stack.Screen name="screens/PreviewScreen" options={{ presentation: 'fullScreenModal' }} />
             <Stack.Screen name="screens/MocScreen" options={{ headerShown: false }} />
+            <Stack.Screen name="screens/CallScreen" options={{ headerShown: false }} />
+            <Stack.Screen name="screens/AudioCallReceivingScreen" options={{ headerShown: false }} />
+            <Stack.Screen name="screens/VideoCallScreen" options={{ headerShown: false }} />
+            <Stack.Screen name="screens/VideoCallReceivingScreen" options={{ headerShown: false }} />
             <Stack.Screen name="screens/CompleteProfileScreen" options={{ headerShown: false }} />
             <Stack.Screen name="screens/AccountSettings" options={{ headerShown: false }} />
             <Stack.Screen name="screens/EditNameScreen" options={{ headerShown: false }} />

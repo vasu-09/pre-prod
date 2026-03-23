@@ -33,7 +33,7 @@ const PermissionsScreen = () => {
     try {
       const { accessToken, refreshToken } = await getStoredSession();
 
-      if (accessToken && refreshToken) {
+      if (accessToken || refreshToken) {
         router.replace('/screens/MocScreen');
         return;
       }

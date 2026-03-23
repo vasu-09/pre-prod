@@ -57,6 +57,7 @@ export const useCallSession = ({
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const callEventHandlerRef = useRef<(event: CallSignalEvent) => void>(() => {});
+  const offerStartedRef = useRef(false);
 
   const {
     joinCall,
@@ -181,6 +182,14 @@ export const useCallSession = ({
       }
 
       if (eventType === 'call.join') {
+        if (!isCallee && !offerStartedRef.current) {
+          offerStartedRef.current = true;
+          const pc = await ensurePeer();
+          const offer = await makeOffer(pc);
+          if (callId && offer.sdp) {
+            await sendOffer({ type: 'offer', sdp: offer.sdp }, callId);
+          }
+        }
         setState(prev => (prev === 'connected' ? prev : 'connecting'));
         return;
       }
@@ -221,7 +230,7 @@ export const useCallSession = ({
         setState('failed');
       }
     },
-    [answerCall, callId, cleanupSessionResources, ensurePeer, onIncomingInvite],
+    [answerCall, callId, cleanupSessionResources, ensurePeer, isCallee, onIncomingInvite, sendOffer],
   );
 
   useEffect(() => {
@@ -237,15 +246,9 @@ export const useCallSession = ({
       throw new Error('callId is required to start call session');
     }
 
+    offerStartedRef.current = false;
     setState('outgoing_invite');
-    const pc = await ensurePeer();
-    await joinCall(callId);
-    const offer = await makeOffer(pc);
-    if (offer.sdp) {
-      await sendOffer({ type: 'offer', sdp: offer.sdp }, callId);
-    }
-    setState('connecting');
-  }, [callId, ensurePeer, joinCall, sendOffer]);
+  }, [callId]);
 
   const acceptIncoming = useCallback(async () => {
     if (!callId) {
@@ -254,12 +257,9 @@ export const useCallSession = ({
 
     await ensurePeer();
     await joinCall(callId);
-    if (isCallee) {
-      setState('connecting');
-    } else {
-      setState('connecting');
-    }
-  }, [callId, ensurePeer, isCallee, joinCall]);
+    setState('connecting');
+  }, [callId, ensurePeer, joinCall]);
+
 
   const toggleMute = useCallback(() => {
     if (!localStream) {
