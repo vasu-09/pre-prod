@@ -65,7 +65,7 @@ let localContactCounter = 0;
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 const DB_NAME = 'moc-app.db';
-const CURRENT_SCHEMA_VERSION = 8;
+const CURRENT_SCHEMA_VERSION = 9;
 
 type MetaRow = {
   value: string;
@@ -81,6 +81,9 @@ type ConversationRow = {
   unread_count: number;
   created_at: string | null;
   updated_at: string | null;
+  sync_state: 'SYNCED' | 'PENDING_CREATE' | null;
+  pending_create: number;
+  server_room_id: number | null;
 };
 
 type MessageRow = {
@@ -141,6 +144,9 @@ export type ConversationRecordInput = {
   unreadCount?: number;
   createdAt?: string | null;
   updatedAt?: string | null;
+  syncState?: 'SYNCED' | 'PENDING_CREATE';
+  pendingCreate?: boolean;
+  serverRoomId?: number | null;
 };
 
 export type StoredConversationSummary = ConversationRecordInput & {
@@ -257,7 +263,10 @@ const migrateToV1 = async (db: SQLite.SQLiteDatabase) => {
       peer_phone TEXT,
       unread_count INTEGER DEFAULT 0,
       created_at TEXT,
-      updated_at TEXT
+      updated_at TEXT,
+      sync_state TEXT DEFAULT 'SYNCED',
+      pending_create INTEGER DEFAULT 0,
+      server_room_id INTEGER
     );
   `);
   await db.execAsync(`
@@ -442,6 +451,32 @@ const migrateToV8 = async (db: SQLite.SQLiteDatabase) => {
   `);
 };
 
+const migrateToV9 = async (db: SQLite.SQLiteDatabase) => {
+  try {
+    await db.execAsync("ALTER TABLE conversations ADD COLUMN sync_state TEXT DEFAULT 'SYNCED';");
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping sync_state migration', error);
+    }
+  }
+
+  try {
+    await db.execAsync('ALTER TABLE conversations ADD COLUMN pending_create INTEGER DEFAULT 0;');
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping pending_create migration', error);
+    }
+  }
+
+  try {
+    await db.execAsync('ALTER TABLE conversations ADD COLUMN server_room_id INTEGER;');
+  } catch (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('Skipping server_room_id migration', error);
+    }
+  }
+};
+
 const runMigrations = async (db: SQLite.SQLiteDatabase) => {
   await ensureMetaTable(db);
   let version = await getSchemaVersion(db);
@@ -482,6 +517,10 @@ const runMigrations = async (db: SQLite.SQLiteDatabase) => {
     if (version < 8) {
       await migrateToV8(tx);
       version = 8;
+    }
+    if (version < 9) {
+      await migrateToV9(tx);
+      version = 9;
     }
     await setSchemaVersion(tx, version);
   });
@@ -593,6 +632,9 @@ const mapConversationRow = (row: ConversationRow): ConversationRecordInput => ({
   unreadCount: row.unread_count,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+  syncState: row.sync_state ?? 'SYNCED',
+  pendingCreate: row.pending_create === 1,
+  serverRoomId: row.server_room_id,
 });
 
 const mapMessageRow = (row: MessageRow): MessageRecordInput => ({
@@ -627,8 +669,8 @@ export const upsertConversationInDb = async (conversation: ConversationRecordInp
   runWithWriteLock(async () => {
     const db = await getDatabase();
     await db.runAsync(
-      `INSERT INTO conversations (id, room_key, title, peer_id, peer_phone, avatar, unread_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO conversations (id, room_key, title, peer_id, peer_phone, avatar, unread_count, created_at, updated_at, sync_state, pending_create, server_room_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          room_key = excluded.room_key,
          title = excluded.title,
@@ -636,7 +678,10 @@ export const upsertConversationInDb = async (conversation: ConversationRecordInp
          peer_phone = COALESCE(excluded.peer_phone, conversations.peer_phone),
          avatar = excluded.avatar,
          unread_count = excluded.unread_count,
-         updated_at = COALESCE(excluded.updated_at, conversations.updated_at)`,
+         updated_at = COALESCE(excluded.updated_at, conversations.updated_at),
+         sync_state = COALESCE(excluded.sync_state, conversations.sync_state),
+         pending_create = COALESCE(excluded.pending_create, conversations.pending_create),
+         server_room_id = COALESCE(excluded.server_room_id, conversations.server_room_id)`,
       [
         conversation.id,
         conversation.roomKey,
@@ -647,8 +692,29 @@ export const upsertConversationInDb = async (conversation: ConversationRecordInp
         conversation.unreadCount ?? 0,
         conversation.createdAt ?? new Date().toISOString(),
         conversation.updatedAt ?? new Date().toISOString(),
+        conversation.syncState ?? 'SYNCED',
+        conversation.pendingCreate ? 1 : 0,
+        conversation.serverRoomId ?? null,
       ],
     );
+  });
+
+export const remapConversationIdInMessages = async (
+  fromConversationId: number,
+  toConversationId: number,
+): Promise<void> =>
+  runWithWriteLock(async () => {
+    const db = await getDatabase();
+    await db.runAsync('UPDATE messages SET conversation_id = ? WHERE conversation_id = ?', [
+      toConversationId,
+      fromConversationId,
+    ]);
+  });
+
+export const deleteConversationByIdFromDb = async (conversationId: number): Promise<void> =>
+  runWithWriteLock(async () => {
+    const db = await getDatabase();
+    await db.runAsync('DELETE FROM conversations WHERE id = ?', [conversationId]);
   });
 
 export const setConversationUnreadInDb = async (roomKey: string, unreadCount: number): Promise<void> =>

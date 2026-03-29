@@ -2388,14 +2388,9 @@ const makeReplyPayload = useCallback(
   const topInset = Platform.OS === 'android' ? 0 : insets.top;
   const androidKeyboardOffset =
     Platform.OS === 'android' && androidKeyboardVisible
-      ? Math.max(0, androidKeyboardHeight - insets.bottom)
+      ? androidKeyboardHeight
       : 0;
-  // When keyboard is closed: stay above navigation bar.
-  // When keyboard is open: remove nav-bar spacing and sit just above keyboard.
-  const composerBottomInset =
-    Platform.OS === 'android'
-      ? (androidKeyboardVisible ? MARGIN : insets.bottom + MARGIN)
-      : Math.max(insets.bottom, MARGIN);
+  const composerBottomPadding = Platform.OS === 'android' ? MARGIN : Math.max(insets.bottom, MARGIN);
 
   const overlayBottomOffset =
     androidKeyboardOffset + composerHeight + MARGIN;
@@ -2934,7 +2929,7 @@ const makeReplyPayload = useCallback(
             styles.bottomBarAbsolute,
             {
               bottom: Platform.OS === 'android' ? androidKeyboardOffset : 0,
-              paddingBottom: composerBottomInset,
+              paddingBottom: composerBottomPadding,
             },
          ]}
         >
@@ -3013,6 +3008,11 @@ const makeReplyPayload = useCallback(
                 value={input}
                 onChangeText={setInput}
                 onFocus={hideOverlay}
+                multiline
+                textAlignVertical="top"
+                returnKeyType="default"
+                submitBehavior="newline"
+                scrollEnabled
               />
 
               <TouchableOpacity
@@ -3835,18 +3835,20 @@ const styles = StyleSheet.create({
   },
   messageBarRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
   },
   messageBar: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center',
-    height: MESSAGE_BAR_HEIGHT,
+    alignItems: 'flex-end',
+    minHeight: MESSAGE_BAR_HEIGHT,
+    maxHeight: 136,
     borderRadius: MESSAGE_BAR_HEIGHT / 2,
     borderWidth: 1,
     borderColor: '#ccc',
     backgroundColor: '#F5F5F5',
     paddingHorizontal: 12,
+    paddingVertical: 4,
   },
 
   micButton: {
@@ -3864,9 +3866,12 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     marginHorizontal: 6,
-    paddingVertical: 0,
-    minHeight: 24,
-    textAlignVertical: 'center',
+    minHeight: 40,
+    maxHeight: 100,
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingHorizontal: 0,
+    textAlignVertical: 'top',
   },
 
   audioPreview: {

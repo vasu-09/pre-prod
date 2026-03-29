@@ -217,8 +217,13 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
     }
     let cancelled = false;
 
-    const bootstrapChatState = async () => {
+  const bootstrapChatState = async () => {
       try {
+        const cachedResults = await getRecentConversationsFromDb();
+        if (cancelled) return;
+
+        setRooms(sortRooms(cachedResults.map(mapStoredConversationToRoomSummary)));
+
         const [authDeviceId, storedDeviceId, storedUserId] = await Promise.all([
           resolveAuthenticatedDeviceId(),
           getMetaValueFromDb(ACTIVE_CHAT_DEVICE_META_KEY),
@@ -229,15 +234,14 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
 
         const normalizedUserId = String(currentUserId);
         if (!authDeviceId) {
-          setRooms([]);
+          console.warn('[CHAT] E2EE device id unavailable. Keeping cached rooms.');
           return;
         }
 
         const hasStoredSessionMarker = Boolean(storedDeviceId) || Boolean(storedUserId);
-        const deviceChanged = String(storedDeviceId ?? '') !== String(authDeviceId);
         const userChanged = String(storedUserId ?? '') !== normalizedUserId;
 
-        if (hasStoredSessionMarker && (deviceChanged || userChanged)) {
+        if (hasStoredSessionMarker && userChanged) {
           await clearChatState();
           await clearChatCryptoState();
           if (cancelled) return;
@@ -249,12 +253,6 @@ export const ChatProvider: React.FC<React.PropsWithChildren> = ({ children }) =>
           setMetaValueInDb(ACTIVE_CHAT_DEVICE_META_KEY, authDeviceId),
         ]);
 
-        if (cancelled) return;
-
-        const results = await getRecentConversationsFromDb();
-        if (cancelled) return;
-
-        setRooms(sortRooms(results.map(mapStoredConversationToRoomSummary)));
       } catch (err) {
         console.warn('Failed to bootstrap chat registry', err);
       }

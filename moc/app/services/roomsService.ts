@@ -1,4 +1,5 @@
 import apiClient from './apiClient';
+import { upsertConversationInDb } from './database';
 
 export interface ChatRoomResponse {
   id: number;
@@ -40,6 +41,55 @@ export const createDirectRoom = async (
   });
 
   return data;
+};
+
+const makeLocalRoomId = () => -Date.now();
+
+export const makeStableDmRoomKey = (currentUserId: number, peerId: number) => {
+  const low = Math.min(currentUserId, peerId);
+  const high = Math.max(currentUserId, peerId);
+  return `local-dm:${low}:${high}`;
+};
+
+export const createLocalDirectRoom = async ({
+  currentUserId,
+  participantId,
+  title,
+  avatar,
+  peerPhone,
+}: {
+  currentUserId: number;
+  participantId: number;
+  title: string;
+  avatar?: string | null;
+  peerPhone?: string | null;
+}): Promise<ChatRoomResponse & { pendingCreate: boolean }> => {
+  const localId = makeLocalRoomId();
+  const roomKey = makeStableDmRoomKey(currentUserId, participantId);
+  const now = new Date().toISOString();
+
+  await upsertConversationInDb({
+    id: localId,
+    roomKey,
+    title,
+    avatar: avatar ?? null,
+    peerId: participantId,
+    peerPhone: peerPhone ?? null,
+    unreadCount: 0,
+    createdAt: now,
+    updatedAt: now,
+    syncState: 'PENDING_CREATE',
+    pendingCreate: true,
+    serverRoomId: null,
+  });
+
+  return {
+    id: localId,
+    roomId: roomKey,
+    name: title,
+    imageUrl: avatar ?? null,
+    pendingCreate: true,
+  };
 };
 
 export const markRoomRead = async (

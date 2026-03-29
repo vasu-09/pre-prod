@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import apiClient from '../services/apiClient';
 import { getStoredSession } from '../services/authStorage';
 import {
@@ -23,6 +24,11 @@ import {
   initializeDatabase,
   saveListSummaryToDb,
 } from '../services/database';
+import {
+  enqueueListMutation,
+  flushListMutationQueue,
+  isProbablyOfflineError,
+} from '../services/listMutationQueue';
 import { normalizeIndianPhoneNumber } from '../services/phoneNumber';
 
 
@@ -88,8 +94,10 @@ export default function ViewListScreen() {
   const [newTaskName, setNewTaskName] = useState('');
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [isTaskInputVisible, setIsTaskInputVisible] = useState(false);
+  const { isOnline } = useNetworkStatus();
+  const [statusMessage, setStatusMessage] = useState('');
   const isMountedRef = useRef(true);
-
+  
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
@@ -137,29 +145,29 @@ export default function ViewListScreen() {
 
     try {
       await initializeDatabase();
+
       let cachedSummary = null;
       try {
         cachedSummary = await getListSummaryFromDb(String(listId));
         if (cachedSummary && isMountedRef.current) {
-          setListSummary(prev => {
-            if (prev && prev.updatedAt === cachedSummary.updatedAt) {
-              return prev;
-            }
-            return cachedSummary;
-          });
+          setListSummary(cachedSummary);
         }
       } catch (dbError) {
         console.error('Failed to load cached list', dbError);
       }
+
+      if (!isOnline) {
+        setStatusMessage('');
+        return;
+      }
+
       const session = await getStoredSession();
       const userIdValue = session?.userId ? Number(session.userId) : null;
-      const usernameValue = session?.username
-        ? String(session.username).trim()
-        : null;
+      const usernameValue = session?.username ? String(session.username).trim() : null;
 
       if (!usernameValue) {
         setError('Missing account information. Please sign in again.');
-        setListSummary(null);
+        setListSummary(cachedSummary ?? null);
         return;
       }
 
@@ -170,77 +178,95 @@ export default function ViewListScreen() {
         return;
       }
 
-      const headers = userIdValue
-        ? { 'X-User-Id': String(userIdValue) }
-        : undefined;
+      const headers = userIdValue ? { 'X-User-Id': String(userIdValue) } : undefined;
 
       const { data } = await apiClient.get(
-        `/api/lists/${encodeURIComponent(listId)}/creator/${encodeURIComponent(
-          normalizedPhone,
-           )}`,
+        `/api/lists/${encodeURIComponent(listId)}/creator/${encodeURIComponent(normalizedPhone)}`,
         { headers },
       );
 
       const normalizedItems = Array.isArray(data?.items)
         ? data.items.map((item) => ({
             ...item,
+            id: item?.id != null ? String(item.id) : `server-${Date.now()}`,
             subQuantities: parseSubQuantities(item?.subQuantitiesJson),
           }))
         : [];
 
-       if (!isMountedRef.current) {
-        return;
-      }
-
-
+       if (!isMountedRef.current) return;
 
       const summaryPayload = {
         ...data,
         items: normalizedItems,
        };
+
       setListSummary(summaryPayload);
       setEditingItemId(null);
       setEditingName('');
-      
-       try {
-        await saveListSummaryToDb({
-          id: String(listId),
-          title: summaryPayload?.title ?? fallbackTitle,
-          listType: summaryPayload?.listType ?? null,
-          pinned: cachedSummary?.pinned ?? null,
-          createdAt: summaryPayload?.createdAt ?? cachedSummary?.createdAt ?? null,
-          updatedAt: summaryPayload?.updatedAt ?? null,
-          createdByUserId:
-            summaryPayload?.createdByUserId != null
-              ? String(summaryPayload.createdByUserId)
-              : cachedSummary?.createdByUserId ?? null,
-          description: summaryPayload?.description ?? cachedSummary?.description ?? null,
-          members: Array.isArray(summaryPayload?.members)
-            ? summaryPayload.members
-            : cachedSummary?.members ?? null,
-          items: normalizedItems,
-        });
-      } catch (dbSaveError) {
-        console.error('Failed to cache list data locally', dbSaveError);
-      }
+      setStatusMessage('');
+
+      await saveListSummaryToDb({
+        id: String(listId),
+        title: summaryPayload?.title ?? fallbackTitle,
+        listType: summaryPayload?.listType ?? null,
+        pinned: cachedSummary?.pinned ?? null,
+        createdAt: summaryPayload?.createdAt ?? cachedSummary?.createdAt ?? null,
+        updatedAt: summaryPayload?.updatedAt ?? null,
+        createdByUserId:
+          summaryPayload?.createdByUserId != null
+            ? String(summaryPayload.createdByUserId)
+            : cachedSummary?.createdByUserId ?? null,
+        description: summaryPayload?.description ?? cachedSummary?.description ?? null,
+        members: Array.isArray(summaryPayload?.members)
+          ? summaryPayload.members
+          : cachedSummary?.members ?? null,
+        items: normalizedItems,
+      });
     } catch (err) {
       console.error('Failed to load list details', err);
       if (isMountedRef.current) {
-        setError('Unable to load list items. Pull to refresh.');
-        setListSummary(prev => (prev ? prev : null));
+        setError('Showing saved list items. Pull to refresh when online.');
       }
     } finally {
       if (isMountedRef.current) {
         setIsLoading(false);
       }
     }
-  }, [fallbackTitle, listId]);
+  }, [fallbackTitle, isOnline, listId]);
+
+  const syncWhenOnline = useCallback(async () => {
+    if (!isOnline) {
+      setStatusMessage('');
+      return;
+    }
+
+    try {
+      const result = await flushListMutationQueue();
+      if (result.processed > 0) {
+        setStatusMessage(
+          `Synced ${result.processed} offline change${result.processed === 1 ? '' : 's'}.`,
+        );
+      }
+      await fetchList();
+    } catch (error) {
+      console.warn('Failed to flush queued list item changes', error);
+    }
+  }, [fetchList, isOnline]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchList();
-    }, [fetchList]),
+      void fetchList();
+      void syncWhenOnline();
+    }, [fetchList, syncWhenOnline]),
   );
+
+  useEffect(() => {
+    if (isOnline) {
+      void syncWhenOnline();
+    } else {
+      setStatusMessage('');
+    }
+  }, [isOnline, syncWhenOnline]);
 
 
   const listTitle = listSummary?.title ?? fallbackTitle;
@@ -274,56 +300,82 @@ export default function ViewListScreen() {
         return;
       }
 
-      if (!listId || itemId == null) {
-        setListSummary((prev) => {
-          if (!prev) {
-            return prev;
-          }
-          const updatedItems = prev.items.map((existing) =>
-            existing?.id === itemId ? { ...existing, itemName: trimmedName } : existing,
-          );
-          return { ...prev, items: updatedItems };
-        });
+       if (itemId == null) {
         cancelInlineEdit();
+        return;
+      }
+
+      let updatedItems = null;
+
+      setListSummary((prev) => {
+        if (!prev) return prev;
+
+        updatedItems = prev.items.map((existing) =>
+          String(existing?.id) === String(itemId)
+            ? { ...existing, itemName: trimmedName, updatedAt: new Date().toISOString() }
+            : existing,
+        );
+
+        return { ...prev, items: updatedItems };
+      });
+
+      if (updatedItems) {
+        await persistListSnapshot(updatedItems);
+      }
+
+      cancelInlineEdit();
+
+      if (!listId) return;
+
+      if (!isOnline) {
+        await enqueueListMutation({
+          type: 'update-item-name',
+          payload: {
+            listId: String(listId),
+            itemId: String(itemId),
+            itemName: trimmedName,
+          },
+        });
+        setStatusMessage('Item updated locally. It will sync when online.');
         return;
       }
 
       try {
         setSavingItemId(itemId);
+
         const session = await getStoredSession();
         const userIdValue = session?.userId ? Number(session.userId) : null;
-        const headers = userIdValue
-          ? { 'X-User-Id': String(userIdValue) }
-          : undefined;
+       const headers = userIdValue ? { 'X-User-Id': String(userIdValue) } : undefined;
 
         await apiClient.put(
-          `/api/lists/${encodeURIComponent(listId)}/checklist/items/${encodeURIComponent(itemId)}`,
+         `/api/lists/${encodeURIComponent(listId)}/checklist/items/${encodeURIComponent(String(itemId))}`,
           { itemName: trimmedName },
           { headers },
         );
 
-        let updatedItems;
-        setListSummary((prev) => {
-          if (!prev) {
-            return prev;
-          }
-          updatedItems = prev.items.map((existing) =>
-            existing?.id === itemId ? { ...existing, itemName: trimmedName } : existing,
-          );
-          return { ...prev, items: updatedItems };
-        });
-        if (updatedItems) {
-          await persistListSnapshot(updatedItems);
-        }
-        cancelInlineEdit();
+        setStatusMessage('');
       } catch (inlineError) {
         console.error('Failed to update checklist item', inlineError);
-        Alert.alert('Update failed', 'Unable to update the item. Please try again.');
+        
+        if (isProbablyOfflineError(inlineError)) {
+          await enqueueListMutation({
+            type: 'update-item-name',
+            payload: {
+              listId: String(listId),
+              itemId: String(itemId),
+              itemName: trimmedName,
+            },
+          });
+          setStatusMessage('Item updated locally. It will sync when online.');
+          return;
+        }
+
+        Alert.alert('Update failed', 'The item was updated locally, but server sync failed.');
       } finally {
         setSavingItemId(null);
       }
     },
-    [cancelInlineEdit, editingName, listId, persistListSnapshot],
+    [cancelInlineEdit, editingName, isOnline, listId, persistListSnapshot],
   );
 
   const handleEditPress = useCallback(
@@ -365,30 +417,45 @@ export default function ViewListScreen() {
     }
 
     if (!listId) {
-      setListSummary((prev) => {
-        if (!prev) {
-          return prev;
-        }
+       Alert.alert('Add task', 'Missing list identifier.');
+      return;
+    }
+        const localItemId = `local-${listId}-${Date.now()}`;
+    const localItem = {
+      id: localItemId,
+      itemName: trimmedName,
+      quantity: null,
+      priceText: null,
+      subQuantities: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-        const temporaryId = Date.now();
-        const appendedItems = [
-          ...prev.items,
-          {
-            id: temporaryId,
-            itemName: trimmedName,
-            quantity: null,
-            priceText: null,
-            subQuantities: [],
-          },
-        ];
+    let nextItems = null;
 
-        return {
-          ...prev,
-          items: appendedItems,
-        };
+    setListSummary((prev) => {
+      if (!prev) return prev;
+      nextItems = [...prev.items, localItem];
+      return { ...prev, items: nextItems };
+    });
+
+    if (nextItems) {
+      await persistListSnapshot(nextItems);
+    }
+
+    setNewTaskName('');
+    setIsTaskInputVisible(false);
+
+        if (!isOnline) {
+      await enqueueListMutation({
+        type: 'add-item',
+        payload: {
+          listId: String(listId),
+          localItemId,
+          itemName: trimmedName,
+        },
       });
-      setNewTaskName('');
-      setIsTaskInputVisible(false);
+      setStatusMessage('Task added locally. It will sync when online.');
       return;
     }
 
@@ -396,9 +463,7 @@ export default function ViewListScreen() {
       setIsAddingTask(true);
       const session = await getStoredSession();
       const userIdValue = session?.userId ? Number(session.userId) : null;
-      const headers = userIdValue
-        ? { 'X-User-Id': String(userIdValue) }
-        : undefined;
+      const headers = userIdValue ? { 'X-User-Id': String(userIdValue) } : undefined;
 
       const { data } = await apiClient.post(
         `/api/lists/${encodeURIComponent(listId)}/checklist/items`,
@@ -406,47 +471,55 @@ export default function ViewListScreen() {
         { headers },
       );
 
-       let nextItems;
-      const normalizedItem = data
+      const serverItem = data
         ? {
             ...data,
+            id: data?.id != null ? String(data.id) : localItemId,
             itemName: data?.itemName ?? trimmedName,
             quantity: data?.quantity ?? null,
             priceText: data?.priceText ?? null,
             subQuantities: parseSubQuantities(data?.subQuantitiesJson),
           }
-        : {
-            id: Date.now(),
-            itemName: trimmedName,
-            quantity: null,
-            priceText: null,
-            subQuantities: [],
-          };
+        : localItem;
+
+      let replacedItems = null;
 
       setListSummary((prev) => {
-        if (!prev) {
-          return prev;
-        }
+        if (!prev) return prev;
+        
+       replacedItems = prev.items.map((existing) =>
+          String(existing?.id) === String(localItemId) ? serverItem : existing,
+        );
 
-       nextItems = [...prev.items, normalizedItem];
-
-        return {
-          ...prev,
-           items: nextItems,
-        };
+        return {...prev, items: nextItems,};
       });
-      if (nextItems) {
-        await persistListSnapshot(nextItems);
+
+      if (replacedItems) {
+        await persistListSnapshot(replacedItems);
       }
-      setNewTaskName('');
-      setIsTaskInputVisible(false);
+      
+      setStatusMessage('');
     } catch (addError) {
       console.error('Failed to add task', addError);
-      Alert.alert('Add task', 'Unable to add the task. Please try again.');
+      
+      if (isProbablyOfflineError(addError)) {
+        await enqueueListMutation({
+          type: 'add-item',
+          payload: {
+            listId: String(listId),
+            localItemId,
+            itemName: trimmedName,
+          },
+        });
+        setStatusMessage('Task added locally. It will sync when online.');
+        return;
+      }
+
+      Alert.alert('Add task', 'Task was added locally, but server sync failed.');
     } finally {
       setIsAddingTask(false);
     }
-  }, [listId, newTaskName, persistListSnapshot]);
+  }, [isOnline, listId, newTaskName, persistListSnapshot])
 
     const handleBeginAddTask = useCallback(() => {
     setIsTaskInputVisible(true);
@@ -462,63 +535,71 @@ export default function ViewListScreen() {
 
   const performDelete = useCallback(
     async (itemId) => {
-      if (itemId == null) {
-        return;
+      if (itemId == null) return;
+      if (!listId) return;
+
+      let filteredItems = null;
+
+          setListSummary((prev) => {
+        if (!prev) return prev;
+
+        filteredItems = prev.items.filter(
+          (existing) => String(existing?.id) !== String(itemId),
+        );
+
+        return { ...prev, items: filteredItems };
+      });
+
+      if (filteredItems) {
+        await persistListSnapshot(filteredItems);
       }
 
-      if (!listId) {
-        setListSummary((prev) => {
-          if (!prev) {
-            return prev;
-          }
-
-          const filteredItems = prev.items.filter(
-            (existing) => existing?.id !== itemId,
-          );
-          return { ...prev, items: filteredItems };
+      if (!isOnline) {
+        await enqueueListMutation({
+          type: 'delete-item',
+          payload: {
+            listId: String(listId),
+            itemId: String(itemId),
+          },
         });
+        setStatusMessage('Item deleted locally. It will sync when online.');
         return;
       }
 
       try {
         setDeletingItemId(itemId);
+
         const session = await getStoredSession();
         const userIdValue = session?.userId ? Number(session.userId) : null;
-        const headers = userIdValue
-          ? { 'X-User-Id': String(userIdValue) }
-          : undefined;
+        const headers = userIdValue ? { 'X-User-Id': String(userIdValue) } : undefined;
 
-        const encodedListId = encodeURIComponent(listId);
-        const encodedItemId = encodeURIComponent(itemId);
+        await apiClient.delete(
+          `/api/lists/${encodeURIComponent(listId)}/checklist/items/${encodeURIComponent(String(itemId))}`,
+          { headers },
+        );
 
-        const endpoint = isPremiumList
-          ? `/api/lists/${encodedListId}/items/${encodedItemId}`
-          : `/api/lists/${encodedListId}/checklist/items/${encodedItemId}`;
-
-        await apiClient.delete(endpoint, { headers });
-
-        let filteredItems;
-        setListSummary((prev) => {
-          if (!prev) {
-            return prev;
-          }
-
-          filteredItems = prev.items.filter(
-            (existing) => existing?.id !== itemId,
-          );
-          return { ...prev, items: filteredItems };
-        });
-         if (filteredItems) {
-          await persistListSnapshot(filteredItems);
-        }
+        setStatusMessage('');
       } catch (deleteError) {
-        console.error('Failed to delete item', deleteError);
-        Alert.alert('Delete failed', 'Unable to delete the item. Please try again.');
+        console.error('Failed to delete checklist item', deleteError);
+
+        if (isProbablyOfflineError(deleteError)) {
+          await enqueueListMutation({
+            type: 'delete-item',
+            payload: {
+              listId: String(listId),
+              itemId: String(itemId),
+            },
+          });
+          setStatusMessage('Item deleted locally. It will sync when online.');
+          return;
+        }
+
+        Alert.alert('Delete failed', 'Item was deleted locally, but server sync failed.');
       } finally {
         setDeletingItemId(null);
       }
     },
-    [isPremiumList, listId, persistListSnapshot],
+    [isOnline, listId, persistListSnapshot],
   );
 
   const handleDeletePress = useCallback(
@@ -704,6 +785,12 @@ export default function ViewListScreen() {
         </TouchableOpacity>
       </View>
 
+      {statusMessage ? (
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoBannerText}>{statusMessage}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.content}>
         {/* List items */}
         <FlatList
@@ -807,6 +894,17 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     marginLeft: 8,
+  },
+
+  infoBanner: {
+    backgroundColor: '#eaf3fb',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  infoBannerText: {
+    color: '#1f6ea7',
+    fontSize: 13,
+    fontWeight: '500',
   },
 
   list: {

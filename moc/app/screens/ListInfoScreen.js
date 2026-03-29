@@ -17,8 +17,9 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { useChatRegistry } from '../context/ChatContext';
 
+import { useChatRegistry } from '../context/ChatContext';
+import { useNetworkStatus } from '../hooks/useNetworkStatus';
 import apiClient from '../services/apiClient';
 import { getStoredSession } from '../services/authStorage';
 import { getAllContactsFromDb } from '../services/contactStorage';
@@ -27,27 +28,38 @@ import {
   initializeDatabase,
   saveListSummaryToDb,
 } from '../services/database';
+import {
+  enqueueListMutation,
+  flushListMutationQueue,
+  isProbablyOfflineError,
+} from '../services/listMutationQueue';
 import { createDirectRoom } from '../services/roomsService';
 import { getStringParam, safeJsonParseParam } from '../utils/navigationParams';
 
 export default function ListInfoScreen() {
   const router = useRouter();
-  const { upsertRoom } = useChatRegistry();
+  const { rooms, upsertRoom } = useChatRegistry();
+  const { isOnline } = useNetworkStatus();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
+
   const listName = getStringParam(params?.listName, '');
   const description = getStringParam(params?.description, '');
+
   const memberArr = useMemo(() => {
     const parsedMembers = safeJsonParseParam(params?.members, [], 'list members');
     return Array.isArray(parsedMembers) ? parsedMembers : [];
   }, [params?.members]);
+
   const listId = useMemo(() => {
     const resolved = getStringParam(params?.listId, '');
     return resolved || null;
   }, [params?.listId]);
+
   const [recipients, setRecipients] = useState(memberArr);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
   const [listTitle, setListTitle] = useState(listName ?? '');
   const [listDescription, setListDescription] = useState(description ?? '');
   const [selectedRecipient, setSelectedRecipient] = useState(null);
@@ -57,12 +69,32 @@ export default function ListInfoScreen() {
   const [isOpeningChat, setIsOpeningChat] = useState(false);
 
   const existingRecipientIdsParam = useMemo(
-    () => JSON.stringify((recipients ?? []).map((recipient) => String(recipient?.id ?? '')).filter(Boolean)),
+    () =>
+      JSON.stringify(
+        (recipients ?? [])
+          .map((recipient) => String(recipient?.id ?? ''))
+          .filter(Boolean),
+      ),
     [recipients],
   );
 
   const getAvatarUri = (value) =>
   typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+
+  const persistRecipients = useCallback(
+    async (nextRecipients) => {
+      if (!listId) return;
+
+      await initializeDatabase();
+      await saveListSummaryToDb({
+        id: String(listId),
+        title: listTitle || 'Untitled List',
+        description: listDescription ?? null,
+        members: nextRecipients,
+      });
+    },
+    [listDescription, listId, listTitle],
+  );
 
   useEffect(() => {
     setListTitle(listName ?? '');
@@ -72,46 +104,33 @@ export default function ListInfoScreen() {
     setListDescription(description ?? '');
   }, [description]);
 
-  useEffect(() => {
-    let isMounted = true;
+   const loadCachedInfo = useCallback(async () => {
+    if (!listId) return;
 
-    const loadCachedInfo = async () => {
-      if (!listId) {
-        return;
+    try {
+      await initializeDatabase();
+      const cached = await getListSummaryFromDb(String(listId));
+      if (!cached) return;
+
+      if (cached.title) setListTitle(cached.title);
+      if (cached.description) setListDescription(cached.description);
+      if (Array.isArray(cached.members) && cached.members.length) {
+        setRecipients(cached.members);
       }
-
-      try {
-        await initializeDatabase();
-        const cached = await getListSummaryFromDb(String(listId));
-        if (!isMounted || !cached) {
-          return;
-        }
-
-        if (cached.title) {
-          setListTitle(cached.title);
-        }
-        if (cached.description) {
-          setListDescription(cached.description);
-        }
-        if (Array.isArray(cached.members) && cached.members.length) {
-          setRecipients(cached.members);
-        }
       } catch (dbError) {
-        console.error('Failed to load cached list info', dbError);
-      }
-    };
-
-    loadCachedInfo();
-
-    return () => {
-      isMounted = false;
-    };
+      console.error('Failed to load cached list info', dbError);
+    }
   }, [listId]);
 
-  const fetchRecipients = useCallback(async () => {
+ const refreshRecipientsFromServer = useCallback(async () => {
     if (!listId) {
       setErrorMessage('Missing list identifier.');
       setRecipients(memberArr);
+      return;
+    }
+
+    if (!isOnline) {
+      setStatusMessage('');
       return;
     }
 
@@ -137,7 +156,10 @@ export default function ListInfoScreen() {
         setListTitle(String(data.title));
       }
 
-      const recipientIds = Array.isArray(data?.recipientUserIds) ? data.recipientUserIds : [];
+      const recipientIds = Array.isArray(data?.recipientUserIds)
+        ? data.recipientUserIds
+        : [];
+
       const contacts = await getAllContactsFromDb();
 
       const normalizedRecipients = recipientIds.map((recipientId) => {
@@ -148,42 +170,61 @@ export default function ListInfoScreen() {
          return {
           id: String(recipientId),
           name: matchedContact?.name ?? `User ${recipientId}`,
-          img: getAvatarUri(matchedContact?.imageUri),mg: matchedContact?.imageUri ?? null,
+          img: getAvatarUri(matchedContact?.imageUri),
           phone: matchedContact?.matchPhone ?? null,
         };
       });
 
       setRecipients(normalizedRecipients);
+
       if (!normalizedRecipients.length) {
         setErrorMessage('No recipients yet.');
       }
 
-      try {
-        await initializeDatabase();
-        await saveListSummaryToDb({
-          id: String(listId),
-          title: data?.title ?? listTitle ?? 'Untitled List',
-          description: data?.description ?? listDescription ?? null,
-          members: normalizedRecipients,
-        });
-
-        } catch (dbError) {
-        console.error('Failed to cache list recipients', dbError);
-      }
-      } catch (error) {
+      await persistRecipients(normalizedRecipients);
+      setStatusMessage('');
+    } catch (error) {
       console.error('Failed to load recipients', error);
-      setErrorMessage('Unable to load recipients right now. Please try again later.');
-      setRecipients(memberArr);
+      setErrorMessage('Showing saved recipients. Live refresh failed.');
+      setRecipients((prev) => (prev?.length ? prev : memberArr));
     } finally {
       setIsLoading(false);
     }
-  }, [listDescription, listId, listTitle, memberArr]);
+  }, [isOnline, listId, listTitle, memberArr, persistRecipients]);
+
+  const syncWhenOnline = useCallback(async () => {
+    if (!isOnline) {
+      setStatusMessage('');
+      return;
+    }
+
+    try {
+      const result = await flushListMutationQueue();
+      if (result.processed > 0) {
+        setStatusMessage(
+          `Synced ${result.processed} offline change${result.processed === 1 ? '' : 's'}.`,
+        );
+      }
+      await refreshRecipientsFromServer();
+    } catch (error) {
+      console.warn('Failed to flush pending changes before recipient refresh', error);
+    }
+  }, [isOnline, refreshRecipientsFromServer]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchRecipients();
-    }, [fetchRecipients]),
+      void loadCachedInfo();
+      void syncWhenOnline();
+    }, [loadCachedInfo, syncWhenOnline]),
   );
+
+  useEffect(() => {
+    if (isOnline) {
+      void syncWhenOnline();
+    } else {
+      setStatusMessage('');
+    }
+  }, [isOnline, syncWhenOnline]);
 
   const handleOpenAddRecipients = useCallback(() => {
     router.push({
@@ -202,9 +243,7 @@ export default function ListInfoScreen() {
   }, []);
 
   const closeRemoveConfirmation = useCallback(() => {
-    if (isRemoving) {
-      return;
-    }
+    if (isRemoving) return;
     setRemoveConfirmVisible(false);
   }, [isRemoving]);
 
@@ -227,6 +266,7 @@ export default function ListInfoScreen() {
     };
 
     closeActionMenu();
+
     router.push({
       pathname: '/screens/ContactProfileScreen',
       params: routeParams,
@@ -250,9 +290,40 @@ export default function ListInfoScreen() {
     const roomAvatar = getAvatarUri(selectedRecipient?.img);
     const recipientPhone = selectedRecipient.phone ? String(selectedRecipient.phone) : '';
 
+    const existingRoom = rooms.find(
+      (room) => Number(room?.peerId) === participantId,
+    );
+
+    if (existingRoom) {
+      closeActionMenu();
+      router.push({
+        pathname: '/screens/ChatDetailScreen',
+        params: {
+          roomId: String(existingRoom.id),
+          roomKey: existingRoom.roomKey,
+          title: existingRoom.title ?? roomTitle,
+          peerId: String(existingRoom.peerId ?? participantId),
+          phone: existingRoom.peerPhone ?? recipientPhone,
+          image: existingRoom.avatar ?? roomAvatar ?? undefined,
+        },
+      });
+      return;
+    }
+
+    if (!isOnline) {
+      closeActionMenu();
+      Alert.alert(
+        'Offline',
+        'You can open existing chats offline, but you cannot create a new chat right now.',
+      );
+      return;
+    }
+
     try {
       setIsOpeningChat(true);
+
       const room = await createDirectRoom(participantId);
+
       upsertRoom({
         id: room.id,
         roomKey: room.roomId,
@@ -263,6 +334,7 @@ export default function ListInfoScreen() {
       });
 
       closeActionMenu();
+
       router.push({
         pathname: '/screens/ChatDetailScreen',
         params: {
@@ -280,7 +352,7 @@ export default function ListInfoScreen() {
     } finally {
       setIsOpeningChat(false);
     }
-  }, [closeActionMenu, router, selectedRecipient, upsertRoom]);
+  }, [closeActionMenu, isOnline, rooms, router, selectedRecipient, upsertRoom]);
 
   const handlePromptRemoveRecipient = useCallback(() => {
     if (!selectedRecipient) {
@@ -298,7 +370,10 @@ export default function ListInfoScreen() {
       return;
     }
 
-    const phoneNumber = selectedRecipient.phone ? String(selectedRecipient.phone).trim() : '';
+    const phoneNumber = selectedRecipient.phone
+      ? String(selectedRecipient.phone).trim()
+      : '';
+
     if (!phoneNumber) {
       setRemoveConfirmVisible(false);
       setSelectedRecipient(null);
@@ -313,10 +388,42 @@ export default function ListInfoScreen() {
       return;
     }
 
+    const nextRecipients = recipients.filter((recipient) => {
+      const samePhone =
+        String(recipient?.phone ?? '').trim() === phoneNumber;
+      const sameId =
+        String(recipient?.id ?? '') === String(selectedRecipient?.id ?? '');
+      return !(samePhone || sameId);
+    });
+
+    setRecipients(nextRecipients);
+    setRemoveConfirmVisible(false);
+    setSelectedRecipient(null);
+
+    try {
+      await persistRecipients(nextRecipients);
+    } catch (error) {
+      console.error('Failed to persist recipient removal locally', error);
+    }
+
+    if (!isOnline) {
+      await enqueueListMutation({
+        type: 'remove-recipient',
+        payload: {
+          listId: String(listId),
+          phone: phoneNumber,
+        },
+      });
+      setStatusMessage('Recipient removed locally. It will sync when online.');
+      return;
+    }
+
     try {
       setIsRemoving(true);
+
       const session = await getStoredSession();
       const userId = session?.userId ? String(session.userId) : null;
+
       if (!userId) {
         throw new Error('Missing account information. Please sign in again.');
       }
@@ -329,46 +436,61 @@ export default function ListInfoScreen() {
         },
       );
 
-      setRemoveConfirmVisible(false);
-      setSelectedRecipient(null);
-      await fetchRecipients();
+      setStatusMessage('');
     } catch (error) {
       console.error('Failed to remove recipient from list', error);
-      Alert.alert('Unable to remove recipient', 'Please try again in a moment.');
+      
+      if (isProbablyOfflineError(error)) {
+        await enqueueListMutation({
+          type: 'remove-recipient',
+          payload: {
+            listId: String(listId),
+            phone: phoneNumber,
+          },
+        });
+        setStatusMessage('Recipient removed locally. It will sync when online.');
+        return;
+      }
+
+      Alert.alert(
+        'Unable to remove recipient',
+        'Recipient was removed locally, but server sync failed.',
+      );
     } finally {
       setIsRemoving(false);
     }
-  }, [fetchRecipients, listId, selectedRecipient]);
+  }, [isOnline, listId, persistRecipients, recipients, selectedRecipient]);
 
   const renderMember = ({ item }) => {
     const avatarUri = getAvatarUri(item.img);
-    return(
-    <TouchableOpacity
-      style={styles.memberRow}
-      activeOpacity={1}
-      onLongPress={() => handleOpenRecipientActions(item)}
-      delayLongPress={220}
-    >
-      {avatarUri ? (
-        <Image source={{ uri: avatarUri }} style={styles.avatar} />
-      ) : (
-        <View style={[styles.avatar, styles.placeholderAvatar]}>
-          <Icon name="person" size={20} color="#888" />
-        </View>
-      )}
-      <View style={styles.memberText}>
-        <Text style={styles.name} numberOfLines={1}>
-          {item.name}
-        </Text>
-        {item.phone ? (
-          <Text style={styles.subText} numberOfLines={1}>
-            {item.phone}
+     return (
+      <TouchableOpacity
+        style={styles.memberRow}
+        activeOpacity={1}
+        onLongPress={() => handleOpenRecipientActions(item)}
+        delayLongPress={220}
+      >
+        {avatarUri ? (
+          <Image source={{ uri: avatarUri }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.placeholderAvatar]}>
+            <Icon name="person" size={20} color="#888" />
+          </View>
+        )}
+
+        <View style={styles.memberText}>
+          <Text style={styles.name} numberOfLines={1}>
+            {item.name}
           </Text>
-        ) : null}
-      </View>
-    </TouchableOpacity>
-  );
-}
+        {item.phone ? (
+            <Text style={styles.subText} numberOfLines={1}>
+              {item.phone}
+            </Text>
+          ) : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const renderEmpty = () => (
     <View style={styles.emptyState}>
@@ -387,35 +509,35 @@ export default function ListInfoScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar backgroundColor="#1f6ea7" barStyle="light-content" />
 
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
           <Icon name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{listTitle}</Text>
         <TouchableOpacity onPress={handleOpenAddRecipients} style={styles.iconBtn}>
-                  <Icon name="person-add" size={24} color="#fff" />
-                </TouchableOpacity>
+          <Icon name="person-add" size={24} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      {/* Content */}
-      <View style={styles.content}>
+      {statusMessage ? (
+        <View style={styles.statusBanner}>
+          <Text style={styles.statusBannerText}>{statusMessage}</Text>
+        </View>
+      ) : null}
 
-        {/* 1) Description Card */}
-        
-       <View style={[styles.card, styles.sectionContainer]}>
-        <Text style={styles.title}>Description</Text>
-           {listDescription ? (
+        <View style={styles.content}>
+        <View style={[styles.card, styles.sectionContainer]}>
+          <Text style={styles.title}>Description</Text>
+          {listDescription ? (
             <Text style={styles.description}>{listDescription}</Text>
           ) : null}
         </View>
 
-        {/* 2) Members Card */}
-       <View style={[styles.card, styles.sectionContainer]}>
+        <View style={[styles.card, styles.sectionContainer]}>
           <Text style={styles.section}>Shared With</Text>
           <FlatList
             data={recipients}
-            keyExtractor={item => item.id}
+            keyExtractor={(item, index) => String(item?.id ?? index)}
             renderItem={renderMember}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
@@ -437,7 +559,9 @@ export default function ListInfoScreen() {
               style={styles.actionMenuItem}
               onPress={handleViewRecipient}
             >
-              <Text style={styles.actionMenuText}>View {selectedRecipient?.name ?? 'contact'}</Text>
+              <Text style={styles.actionMenuText}>
+                View {selectedRecipient?.name ?? 'contact'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionMenuItem}
@@ -471,7 +595,8 @@ export default function ListInfoScreen() {
         <Pressable style={styles.modalBackdrop} onPress={closeRemoveConfirmation}>
           <Pressable style={styles.confirmCard} onPress={() => {}}>
             <Text style={styles.confirmText}>
-              Remove {selectedRecipient?.name ?? 'this recipient'} from {listTitle || 'this list'}?
+              Remove {selectedRecipient?.name ?? 'this recipient'} from{' '}
+              {listTitle || 'this list'}?
             </Text>
             <View style={styles.confirmActions}>
               <TouchableOpacity
@@ -520,7 +645,17 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-
+  statusBanner: {
+    backgroundColor: '#eaf3fb',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  statusBannerText: {
+    color: '#1f6ea7',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  
   // Content wrapper
   content: {
     paddingTop: 16,

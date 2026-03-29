@@ -21,10 +21,12 @@ import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useChatRegistry } from '../context/ChatContext';
 import { useContactSync } from '../hooks/useContactSync';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { getStoredSession } from '../services/authStorage';
+import { enqueuePendingRoomCreate, flushPendingRoomCreates } from '../services/chatRoomMutationQueue';
 import { ensureContactsSynced, searchCachedContacts } from '../services/contactSyncCoordinator';
 import { getE2EEClient } from '../services/e2ee';
 import { flushListMutationQueue } from '../services/listMutationQueue';
-import { createDirectRoom } from '../services/roomsService';
+import { createDirectRoom, createLocalDirectRoom } from '../services/roomsService';
 
 const windowHeight = Dimensions.get('window').height;
 
@@ -96,13 +98,14 @@ const MocScreen = () => {
 
     const bootstrapOnlineWork = async () => {
       if (!isOnline) {
-        setStatusMessage('Offline — showing saved chats and contacts.');
+        setStatusMessage('');
         return;
       }
 
       try {
         await Promise.all([
           refreshMatchedSuggestions(false),
+          flushPendingRoomCreates(),
           flushListMutationQueue(),
           getE2EEClient().catch((err) => {
             console.warn('Failed to bootstrap E2EE client', err);
@@ -253,14 +256,48 @@ const MocScreen = () => {
         return;
       }
 
-      if (!isOnline) {
-        setCreateError(
-          'You are offline. You can open existing chats, but you cannot create a new direct conversation right now.',
-        );
-        return;
-      }
-
       try {
+        if (!isOnline) {
+          const session = await getStoredSession();
+          const currentUserId = session?.userId ? Number(session.userId) : null;
+
+          if (!currentUserId) {
+            throw new Error('Missing current user id for local room creation');
+          }
+
+          const localRoom = await createLocalDirectRoom({
+            currentUserId,
+            participantId,
+            title: roomTitle,
+            avatar: roomAvatar,
+            peerPhone: phone,
+          });
+
+          const normalizedRoom = {
+            id: localRoom.id,
+            roomKey: localRoom.roomId,
+            title: roomTitle,
+            avatar: roomAvatar,
+            peerId: participantId,
+            peerPhone: phone,
+            unreadCount: 0,
+          };
+
+          upsertRoom(normalizedRoom);
+
+          await enqueuePendingRoomCreate({
+            localRoomId: localRoom.id,
+            localRoomKey: localRoom.roomId,
+            participantId,
+            title: roomTitle,
+            avatar: roomAvatar,
+            peerPhone: phone,
+          });
+
+          openRoom(normalizedRoom, roomTitle, phone, roomAvatar, participantId);
+          return;
+        }
+
         setCreatingRoomFor(tracker);
 
         const room = await createDirectRoom(participantId);
@@ -486,7 +523,7 @@ const MocScreen = () => {
                   <Text style={styles.subtitle}>
                     {isOnline
                       ? 'No matched contacts on MoC yet.'
-                      : 'Offline — no matched contacts are cached yet.'}
+                      : 'No matched contacts are cached yet.'}
                   </Text>
                 ) : null}
 
