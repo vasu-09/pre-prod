@@ -136,7 +136,7 @@ export default function ListsScreen() {
 
       if (!userIdValue) {
           if (isMountedRef.current) {
-            setError('Please sign in again to load your lists.');
+            setError('');
           }
         return;
         }
@@ -175,7 +175,7 @@ export default function ListsScreen() {
       } catch (err) {
         console.error('Failed to load lists from server', err);
         if (isMountedRef.current) {
-          setError('Showing saved lists. Pull to refresh when online.');
+          setError('');
         }
       } finally {
         if (isMountedRef.current && showSpinner) {
@@ -336,7 +336,7 @@ export default function ListsScreen() {
       const userIdValue = session?.userId ? Number(session.userId) : null;
 
       if (!userIdValue) {
-        setError('Please sign in again to update pinned lists.');
+        setError('');
         return;
       }
 
@@ -366,7 +366,7 @@ export default function ListsScreen() {
         setStatusMessage('Pinned state saved locally. It will sync when online.');
         return;
       }
-      setError('Pinned state was saved locally, but server sync failed.');
+      setError('');
     }
   }, [selectedIds, pinnedIds, clearSelection, getListId, isOnline]);
 
@@ -410,7 +410,7 @@ export default function ListsScreen() {
         const userIdValue = session?.userId ? Number(session.userId) : null;
 
         if (!userIdValue) {
-          setError('Please sign in again to delete lists.');
+          setError('');
           return;
         }
 
@@ -438,7 +438,7 @@ export default function ListsScreen() {
           setStatusMessage('Lists deleted locally. They will sync when online.');
           return;
         }
-         setError('Delete was applied locally, but server sync failed.');
+         setError('');
       }
     },
     [clearSelection, getListId, isOnline],

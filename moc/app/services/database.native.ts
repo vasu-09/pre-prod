@@ -1067,7 +1067,7 @@ export const replaceListsInDb = async (lists: ListRecordInput[]): Promise<void> 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                   title = excluded.title,
-                  list_type = excluded.list_type,
+                  list_type = COALESCE(excluded.list_type, lists.list_type),
                   pinned = excluded.pinned,
                   created_at = COALESCE(excluded.created_at, lists.created_at),
                   updated_at = COALESCE(excluded.updated_at, lists.updated_at),
@@ -1194,7 +1194,7 @@ export const saveListSummaryToDb = async (summary: ListSummaryInput): Promise<vo
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            title = excluded.title,
-           list_type = excluded.list_type,
+           list_type = COALESCE(excluded.list_type, lists.list_type),
            pinned = excluded.pinned,
            created_at = COALESCE(excluded.created_at, lists.created_at),
            updated_at = COALESCE(excluded.updated_at, lists.updated_at),

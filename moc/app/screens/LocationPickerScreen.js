@@ -1,21 +1,41 @@
-// screens/LocationPickerScreen.js
 import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
+  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView from '../../components/MapView';
-
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+import MapView from '../../components/MapView';
 import { useChatSession } from '../hooks/useChatSession';
 
+const DEFAULT_REGION = {
+  latitude: 17.385,
+  longitude: 78.4867,
+  latitudeDelta: 0.01,
+  longitudeDelta: 0.01,
+};
+
+const toRegion = coords => ({
+  latitude: coords.latitude,
+  longitude: coords.longitude,
+  latitudeDelta: 0.01,
+  longitudeDelta: 0.01,
+});
+
+const withTimeout = (promise, ms) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`timeout after ${ms}ms`)), ms)
+    ),
+  ]);
 
 export default function LocationPickerScreen() {
   const insets = useSafeAreaInsets();
@@ -23,9 +43,10 @@ export default function LocationPickerScreen() {
   const params = useLocalSearchParams();
   const mapRef = useRef(null);
 
-  const [region, setRegion] = useState(null);
-  
+  const [region, setRegion] = useState(DEFAULT_REGION);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(true);
+  const [hasLocationPermission, setHasLocationPermission] = useState(false);
 
   const normalizeParam = value => {
     if (Array.isArray(value)) return value[0];
@@ -45,82 +66,140 @@ export default function LocationPickerScreen() {
     disableSubscriptions: true,
   });
 
-  // 1️⃣ Get last‑known (fast) or current location
- useEffect(() => {
-  (async () => {
-    // 1️⃣ Ask for permission up front
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      console.warn('Location permission not granted');
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        const existing = await Location.getForegroundPermissionsAsync();
+        let status = existing.status;
+
+        if (status !== 'granted') {
+          const requested = await Location.requestForegroundPermissionsAsync();
+          status = requested.status;
+        }
+
+        if (!mounted) return;
+
+        if (status !== 'granted') {
+          setHasLocationPermission(false);
+          setIsFetchingLocation(false);
+          Alert.alert(
+            'Location permission required',
+            'Please allow location permission to share your location.'
+          );
+          return;
+        }
+
+        setHasLocationPermission(true);
+
+        // Android-only: check whether device location itself is turned on
+        try {
+          const providerStatus = await Location.getProviderStatusAsync();
+          if (
+            Platform.OS === 'android' &&
+            providerStatus &&
+            providerStatus.locationServicesEnabled === false
+          ) {
+            Alert.alert(
+              'Turn on location',
+              'Please enable location services on your phone.'
+            );
+          }
+        } catch (e) {
+          console.warn('Provider status check failed', e);
+        }
+
+        // Fast path: use last known location first if available
+        try {
+          const lastKnown = await Location.getLastKnownPositionAsync();
+          if (mounted && lastKnown?.coords) {
+            setRegion(toRegion(lastKnown.coords));
+          }
+        } catch (e) {
+          console.warn('Last known location failed', e);
+        }
+
+        // Fresh location with timeout so screen never hangs forever
+        try {
+          const current = await withTimeout(
+            Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            }),
+            8000
+          );
+
+          if (mounted && current?.coords) {
+            const nextRegion = toRegion(current.coords);
+            setRegion(nextRegion);
+            requestAnimationFrame(() => {
+              mapRef.current?.animateToRegion?.(nextRegion, 500);
+            });
+          }
+        } catch (e) {
+          console.warn('Fresh location failed or timed out', e);
+        }
+      } catch (err) {
+        console.error('Failed to load location:', err);
+        Alert.alert('Location error', 'Unable to load location right now.');
+      } finally {
+        if (mounted) {
+          setIsFetchingLocation(false);
+        }
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const sendCurrent = async () => {
+    if (!region) {
+      Alert.alert('Location unavailable', 'Location is not ready yet.');
+      return;
+    }
+
+    if (!roomId && !roomKey) {
+      Alert.alert('Missing room details', 'Unable to send location right now.');
       return;
     }
 
     try {
-      // 2️⃣ Get a fresh position (with a 10s timeout)
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-        maximumAge: 0,
-        timeout: 10000,       // 10 seconds max wait
+      const url = `https://maps.google.com/?q=${region.latitude},${region.longitude}`;
+      const payload = JSON.stringify({
+        type: 'location',
+        coords: {
+          latitude: region.latitude,
+          longitude: region.longitude,
+        },
+        url,
       });
 
-      setRegion({
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
+      const sent = await sendTextMessage(payload);
+
+      if (sent?.success) {
+        router.back();
+        return;
+      }
+
+      Alert.alert('Send failed', 'Unable to send location. Please try again.');
     } catch (err) {
-      console.error('Failed to get location:', err);
-      // optionally set a fallback region here
+      console.error('Send location failed:', err);
+      Alert.alert('Send failed', 'Unable to send location. Please try again.');
     }
-  })();
-}, []);
-
-
-  if (!region) {
-    return (
-      <SafeAreaView style={styles.loader}>
-        <Text>Loading map…</Text>
-      </SafeAreaView>
-    );
-  }
-
-  // Helpers to send back
-  const sendCurrent = async () => {
-    if (!roomId || !roomKey) {
-      Alert.alert('Missing room details', 'Unable to send location right now.');
-      return;
-    }
-    const url = `https://maps.google.com/?q=${region.latitude},${region.longitude}`;
-    const payload = JSON.stringify({
-      type: 'location',
-      coords: { latitude: region.latitude, longitude: region.longitude },
-      url,
-    });
-    const sent = await sendTextMessage(payload);
-    if (sent?.success) {
-      router.back();
-      return;
-    }
-    Alert.alert('Send failed', 'Unable to send location. Please try again.');
   };
-  
 
-  // Center back on current coords
   const centerMap = () => {
-    if (mapRef.current) {
-      mapRef.current.animateToRegion(region, 500);
-    }
+    mapRef.current?.animateToRegion?.(region, 500);
   };
 
-  // map height: half or full
   const mapHeight = isFullScreen
     ? Dimensions.get('window').height - insets.top
     : Dimensions.get('window').height * 0.5;
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Icon name="arrow-back" size={24} color="#fff" />
@@ -128,22 +207,28 @@ export default function LocationPickerScreen() {
 
         <Text style={styles.title}>Send Location</Text>
 
-         <TouchableOpacity onPress={() => {}} style={styles.iconBtn}>
+        <TouchableOpacity onPress={() => {}} style={styles.iconBtn}>
           <Icon name="search" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
 
-      {/* MAP */}
       <View style={[styles.mapContainer, { height: mapHeight }]}>
         <MapView
           ref={mapRef}
-         style={StyleSheet.absoluteFill}
-         initialRegion={region}
-         onRegionChangeComplete={r => setRegion(r)}
-         showsUserLocation
-         showsMyLocationButton={false}
+          style={StyleSheet.absoluteFill}
+          region={region}
+          onRegionChangeComplete={r => setRegion(r)}
+          showsUserLocation={hasLocationPermission}
+          showsMyLocationButton={false}
           liteMode={false}
         />
+
+        {isFetchingLocation ? (
+          <View style={styles.loadingOverlay}>
+            <Text style={styles.loadingText}>Getting your location...</Text>
+          </View>
+        ) : null}
+
         <TouchableOpacity
           onPress={() => setIsFullScreen(f => !f)}
           style={styles.fullscreenBtn}
@@ -154,37 +239,28 @@ export default function LocationPickerScreen() {
             color="#1f6ea7"
           />
         </TouchableOpacity>
-        {/* Center Marker */}
+
         <View style={styles.markerFixed}>
           <Icon name="place" size={40} color="red" />
         </View>
-        {/* Locate Button */}
-        <TouchableOpacity
-          style={styles.locateBtn}
-          onPress={centerMap}
-        >
+
+        <TouchableOpacity style={styles.locateBtn} onPress={centerMap}>
           <Icon name="my-location" size={24} color="#1f6ea7" />
         </TouchableOpacity>
       </View>
 
-      {/* OPTIONS */}
       <View style={styles.options}>
-        
-
         <TouchableOpacity style={styles.optionRow} onPress={sendCurrent}>
           <Icon name="radio-button-checked" size={24} color="#1f6ea7" />
           <Text style={styles.optionText}>Send your current location</Text>
         </TouchableOpacity>
       </View>
-
-    
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 
   header: {
     height: 56,
@@ -206,6 +282,23 @@ const styles = StyleSheet.create({
   mapContainer: {
     width: '100%',
     backgroundColor: '#eee',
+    overflow: 'hidden',
+  },
+
+  loadingOverlay: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    right: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 10,
+    zIndex: 2,
+  },
+  loadingText: {
+    color: '#333',
+    textAlign: 'center',
   },
 
   markerFixed: {
@@ -250,52 +343,5 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     fontSize: 16,
     color: '#333',
-  },
-
-  modalOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    paddingTop: 16,
-    paddingBottom: 62,
-    borderTopLeftRadius: 12,
-    borderTopRightRadius: 12,
-  },
-  modalTitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 12,
-    color: '#333',
-  },
-  previewRow: {
-    fontSize: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewText: {
-    fontSize: 24,
-    marginHorizontal: 4,
-    color: '#000',          // ensure the colon is black
-  },
-  unit: {
-    fontSize: 16,
-    marginLeft: 8,
-    color: '#333',
-  },
-  okBtn: {
-    marginTop: 16,
-    alignSelf: 'center',
-    backgroundColor: '#1f6ea7',
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    borderRadius: 24,
-  },
-  okText: {
-    color: '#fff',
-    fontSize: 16,
   },
 });

@@ -271,8 +271,22 @@ export default function ViewListScreen() {
 
   const listTitle = listSummary?.title ?? fallbackTitle;
   const listItems = listSummary?.items ?? [];
-  const isPremiumList = listSummary?.listType === 'PREMIUM';
-  const isBasicList = listSummary?.listType === 'BASIC';
+  
+  const hasPremiumData = useMemo(() => {
+    return listItems.some((item) => {
+      const hasQuantity =
+        item?.quantity != null && String(item.quantity).trim() !== '';
+      const hasPrice =
+        item?.priceText != null && String(item.priceText).trim() !== '';
+      const hasSubQuantities =
+        Array.isArray(item?.subQuantities) && item.subQuantities.length > 0;
+
+      return hasQuantity || hasPrice || hasSubQuantities;
+    });
+  }, [listItems]);
+
+  const isPremiumList = listSummary?.listType === 'PREMIUM' || hasPremiumData;
+  const isBasicList = listSummary?.listType === 'BASIC' && !hasPremiumData;
 
   const startInlineEdit = useCallback(
     (item) => {

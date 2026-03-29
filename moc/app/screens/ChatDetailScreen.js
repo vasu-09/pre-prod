@@ -1299,17 +1299,22 @@ const makeReplyPayload = useCallback(
         for (const entry of normalizedLists) {
           if (!entry?.id) continue;
 
+          const existing = await getListSummaryFromDb(String(entry.id));
+
           await saveListSummaryToDb({
             id: String(entry.id),
-            title: entry.title ?? 'Untitled List',
+            title: entry.title ?? existing?.title ?? 'Untitled List',
             // Mark this list as shared with the current chat peer.
-            members: memberPhone ? [{ phone: memberPhone }] : null,
-            // Keep other fields empty; they'll be filled by fetchSelectedList.
-            listType: null,
-            createdAt: null,
-            updatedAt: null,
-            createdByUserId: null,
-            description: null,
+            members: memberPhone
+              ? [{ phone: memberPhone }]
+              : existing?.members ?? null,
+            // Preserve existing metadata when only header data is refreshed.
+            listType: existing?.listType ?? null,
+            createdAt: existing?.createdAt ?? null,
+            updatedAt: existing?.updatedAt ?? null,
+            createdByUserId: existing?.createdByUserId ?? null,
+            description: existing?.description ?? null,
+            items: existing?.items,
           });
         }
       } catch (dbError) {
